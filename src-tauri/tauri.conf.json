@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fica Tostadores",
+  "version": "0.1.0",
+  "identifier": "com.fica.tostadores",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Fica Tostadores",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE3NDZCMDMzQ0Q4MjI0N0QKUldSOUpJTE5NN0JHcHhuQmNMMDRXZjA3bUpja2FvZ0x4RENZWjVEeHAyKy94QkpmSUtQdlBlQWgK",
+      "endpoints": [
+        "https://github.com/MLA-ex3tav/FicaTostadoresAPPv2/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
