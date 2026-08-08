@@ -10,18 +10,6 @@ Reemplaza la versión anterior basada en Electron (`FIcaTostadoresAPP`).
 - [Rust](https://www.rust-lang.org/tools/install) (instalado vía `rustup`)
 - En Windows: [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) con el workload **Desktop development with C++**
 
-## Configuración (.env)
-
-Copia `.env.example` a `.env` y completa los valores (los de Firebase son los
-mismos que usa la web; el secreto debe ser idéntico a
-`COTIZACIONES_APP_SECRET` en el `.env` de FicaTostadoresWEB):
-
-| Variable | Descripción |
-|----------|-------------|
-| `VITE_WEB_API_URL` | URL base de la web (`http://localhost:3000` en dev) |
-| `VITE_FIREBASE_*` | Config pública de Firebase (6 variables) |
-| `VITE_COTIZACIONES_APP_SECRET` | Secreto compartido para las rutas `/api/electron/*` |
-
 ## Comandos
 
 ```bash
