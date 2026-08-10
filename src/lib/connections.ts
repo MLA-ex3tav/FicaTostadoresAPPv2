@@ -3,9 +3,10 @@ import {
   APP_VERSION,
   getConfig,
   getConfigIssues,
-  getInstanceId,
 } from "./config";
 import { getDb } from "./firebase";
+import { getStableInstanceId } from "./secure-store";
+import { getNetworkState } from "./network";
 import { fetchSolicitudes, pingWeb, sendHeartbeat } from "./web-api";
 import type { IconName } from "../ui/icons";
 
@@ -21,6 +22,7 @@ export interface ConnectionCheck {
 }
 
 const CHECK_DEFS: Array<Pick<ConnectionCheck, "id" | "label" | "icon">> = [
+  { id: "red", label: "Red local", icon: "plug" },
   { id: "config", label: "Configuración (.env)", icon: "gear" },
   { id: "firestore", label: "Base de datos (Firestore)", icon: "database" },
   { id: "web", label: "Sitio web", icon: "globe" },
@@ -71,7 +73,18 @@ export async function runConnectionChecks(
 
   onUpdate([...checks]);
 
-  // 1. Variables de entorno
+  // 1. Red local (estado en vivo de la máquina de conectividad)
+  const red = getNetworkState();
+  update(
+    "red",
+    red === "online"
+      ? { status: "ok", detail: "Conectado a la red" }
+      : red === "degraded"
+        ? { status: "warn", detail: "Red disponible, servicio web con problemas" }
+        : { status: "error", detail: "Sin conexión de red" },
+  );
+
+  // 2. Variables de entorno
   const config = getConfig();
   const issues = getConfigIssues(config);
 
@@ -82,7 +95,7 @@ export async function runConnectionChecks(
       : { status: "error", detail: issues.join(" · ") },
   );
 
-  // 2. Firestore (lectura pública del catálogo)
+  // 3. Firestore (lectura pública del catálogo)
   const firestoreStarted = performance.now();
 
   try {
@@ -103,7 +116,7 @@ export async function runConnectionChecks(
     });
   }
 
-  // 3. Sitio web en línea
+  // 4. Sitio web en línea
   const web = await pingWeb();
 
   update(
@@ -121,10 +134,10 @@ export async function runConnectionChecks(
         },
   );
 
-  // 4. Heartbeat con secreto compartido
+  // 5. Heartbeat con secreto compartido
   const heartbeat = await sendHeartbeat({
     version: APP_VERSION,
-    instanceId: getInstanceId(),
+    instanceId: await getStableInstanceId(),
   });
 
   update(
@@ -142,7 +155,7 @@ export async function runConnectionChecks(
         },
   );
 
-  // 5. API de solicitudes (lectura vía web + Admin SDK)
+  // 6. API de solicitudes (lectura vía web + Admin SDK)
   const solicitudes = await fetchSolicitudes("cotizaciones");
 
   update(

@@ -1,10 +1,9 @@
 import type { SolicitudRemota } from "../lib/web-api";
-import { actualizarEstadoSolicitud } from "../lib/web-api";
 import {
   getSolicitudDate,
   subscribeSolicitudes,
-  refreshSolicitudes,
   eliminarSolicitudRemota,
+  avanzarEstadoSolicitud,
   type SolicitudesState,
 } from "../services/solicitudes";
 import { obtenerOrdenTrabajoPdf, descargarPdf } from "../services/cotizacion-pdf";
@@ -15,6 +14,7 @@ import { openContextMenu, type ContextMenuItem } from "./context-menu";
 import { openNuevaCotizacion } from "./nueva-cotizacion";
 import { showConfirmDialog } from "./confirm-dialog";
 import { compartirPdf } from "./pdf-share";
+import { conLoader } from "./loader";
 
 const OT_ESTADO_LABELS: Record<string, string> = {
   aprobada_ot: "Por iniciar",
@@ -244,15 +244,20 @@ function renderOT(state: SolicitudesState): void {
   };
 
   const avanzar = async (id: string, nextEstado: string): Promise<void> => {
-    const result = await actualizarEstadoSolicitud(id, nextEstado);
+    const result = await avanzarEstadoSolicitud(id, nextEstado);
     if (!result.ok) {
       showToast({
         title: "Error al actualizar OT",
         message: result.error ?? "Ocurrió un error al cambiar la etapa de producción.",
         tone: "error",
       });
+    } else if (result.queued) {
+      showToast({
+        title: "Cambio guardado sin conexión",
+        message: "La nueva etapa se enviará automáticamente cuando se recupere la conexión.",
+        tone: "info",
+      });
     } else {
-      await refreshSolicitudes();
       showToast({
         title: "Etapa de OT Actualizada",
         message: "La orden de trabajo fue avanzada exitosamente.",
@@ -271,7 +276,10 @@ function renderOT(state: SolicitudesState): void {
     });
     if (!confirmado) return;
 
-    const result = await eliminarSolicitudRemota(id);
+    const result = await conLoader(
+      eliminarSolicitudRemota(id),
+      "Eliminando…",
+    );
     if (result.ok) {
       showToast({
         title: "OT eliminada",

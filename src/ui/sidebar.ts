@@ -11,9 +11,7 @@ type NavigateHandler = (viewId: ViewId) => void;
 
 let onViewChange: NavigateHandler = () => {};
 
-const SIDEBAR_KEY = "fica-sidebar-collapsed";
-
-export function onNavigate(callback: NavigateHandler): void {
+const SIDEBAR_KEY = "fica-sidebar-collapsed";export function onNavigate(callback: NavigateHandler): void {
   onViewChange = callback;
 }
 

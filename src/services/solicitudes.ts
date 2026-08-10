@@ -1,3 +1,5 @@
+import { enqueueOp } from "../lib/offline-queue";
+import { getNetworkState, reportFailure } from "../lib/network";
 import {
   actualizarEstadoSolicitud,
   actualizarCotizacionSolicitud,
@@ -6,6 +8,8 @@ import {
   type RegistroOrdenTrabajoPayload,
   type SolicitudRemota,
 } from "../lib/web-api";
+import { mostrarTopLoader, ocultarTopLoader } from "../ui/loader";
+import { showToast } from "../ui/toast";
 
 export interface SolicitudesState {
   cotizaciones: SolicitudRemota[];
@@ -32,6 +36,16 @@ const listeners = new Set<SolicitudesListener>();
 
 function emit(): void {
   listeners.forEach((listener) => listener({ ...state }));
+}
+
+/** Firma breve de una lista de solicitudes para detectar si hubo cambios. */
+function firmarSolicitudes(items: SolicitudRemota[]): string {
+  return items
+    .map(
+      (item) =>
+        `${item.id}:${String(item.estado ?? "")}:${item.enOT ? "1" : "0"}`,
+    )
+    .join("|");
 }
 
 export function subscribeSolicitudes(
@@ -72,6 +86,7 @@ export async function refreshSolicitudes(options?: RefreshOptions): Promise<void
 
   refreshInFlight = (async () => {
     if (!silent) {
+      mostrarTopLoader();
       if (!hasLoadedOnce) {
         state.loading = true;
       } else {
@@ -80,36 +95,72 @@ export async function refreshSolicitudes(options?: RefreshOptions): Promise<void
       emit();
     }
 
-    const [cotizaciones, soporte] = await Promise.all([
-      fetchSolicitudes("cotizaciones"),
-      fetchSolicitudes("soporte"),
-    ]);
-
-    if (cotizaciones.ok && cotizaciones.data) {
-      const seen = new Map<string, SolicitudRemota>();
-      for (const item of cotizaciones.data.solicitudes) {
-        const key = item.id;
-        if (!seen.has(key)) {
-          seen.set(key, item);
-        }
+    try {
+      if (silent && getNetworkState() === "offline") {
+        state.error = "Sin conexión. Los datos se recargarán al reconectar.";
+        emit();
+        return;
       }
-      state.cotizaciones = Array.from(seen.values());
+
+      const [cotizaciones, soporte] = await Promise.all([
+        fetchSolicitudes("cotizaciones"),
+        fetchSolicitudes("soporte"),
+      ]);
+
+      if (cotizaciones.status === null || soporte.status === null) {
+        reportFailure();
+      }
+
+      const nuevasCotizaciones: SolicitudRemota[] = [];
+      if (cotizaciones.ok && cotizaciones.data) {
+        const seen = new Map<string, SolicitudRemota>();
+        for (const item of cotizaciones.data.solicitudes) {
+          const key = item.id;
+          if (!seen.has(key)) {
+            seen.set(key, item);
+          }
+        }
+        nuevasCotizaciones.push(...Array.from(seen.values()));
+      }
+
+      const nuevasSoporte: SolicitudRemota[] = soporte.ok && soporte.data
+        ? soporte.data.solicitudes
+        : state.soporte;
+
+      const errors = [cotizaciones, soporte]
+        .filter((result) => !result.ok)
+        .map((result) => result.error);
+      const nuevoError = errors.length > 0 ? errors.join(" · ") : null;
+
+      const huboCambios =
+        firmarSolicitudes(state.cotizaciones) !==
+          firmarSolicitudes(nuevasCotizaciones) ||
+        firmarSolicitudes(state.soporte) !== firmarSolicitudes(nuevasSoporte) ||
+        state.error !== nuevoError;
+
+      state.cotizaciones = nuevasCotizaciones;
+      state.soporte = nuevasSoporte;
+      state.error = nuevoError;
+
+      if (!silent && hasLoadedOnce && !huboCambios) {
+        showToast({
+          title: "Sin cambios",
+          message: "Los datos ya están actualizados.",
+          tone: "info",
+          icon: "check",
+          durationMs: 3000,
+        });
+      }
+    } finally {
+      if (!silent) {
+        ocultarTopLoader();
+      }
+      state.loading = false;
+      state.refreshing = false;
+      state.lastUpdatedAt = Date.now();
+      hasLoadedOnce = true;
+      emit();
     }
-
-    if (soporte.ok && soporte.data) {
-      state.soporte = soporte.data.solicitudes;
-    }
-
-    const errors = [cotizaciones, soporte]
-      .filter((result) => !result.ok)
-      .map((result) => result.error);
-
-    state.error = errors.length > 0 ? errors.join(" · ") : null;
-    state.loading = false;
-    state.refreshing = false;
-    state.lastUpdatedAt = Date.now();
-    hasLoadedOnce = true;
-    emit();
   })();
 
   try {
@@ -171,10 +222,20 @@ export function isSolicitudPendiente(item: SolicitudRemota): boolean {
   return !ESTADOS_CERRADOS.has(estado);
 }
 
+/** Encola una mutación cuando no hay conexión (se reenvía al reconectar). */
+function esErrorDeRed(result: { status: number | null }): boolean {
+  return result.status === null || getNetworkState() === "offline";
+}
+
 export async function aprobarCotizacion(
   id: string,
 ): Promise<{ ok: boolean; error: string | null }> {
   const result = await actualizarEstadoSolicitud(id, "aprobada_ot");
+
+  if (esErrorDeRed(result)) {
+    await enqueueOp("set_estado", { id, estado: "aprobada_ot" });
+    return { ok: true, error: null };
+  }
 
   if (result.ok) {
     await refreshSolicitudes();
@@ -189,12 +250,42 @@ export async function rechazarCotizacion(
 ): Promise<{ ok: boolean; error: string | null }> {
   const result = await actualizarEstadoSolicitud(id, "rechazada");
 
+  if (esErrorDeRed(result)) {
+    await enqueueOp("set_estado", { id, estado: "rechazada" });
+    return { ok: true, error: null };
+  }
+
   if (result.ok) {
     await refreshSolicitudes();
     return { ok: true, error: null };
   }
 
   return { ok: false, error: result.error ?? "Error desconocido" };
+}
+
+/** Cambia la etapa de una OT; offline se encola y se aplica al reconectar. */
+export async function avanzarEstadoSolicitud(
+  id: string,
+  estado: string,
+): Promise<{ ok: boolean; error: string | null; queued: boolean }> {
+  if (getNetworkState() === "offline") {
+    await enqueueOp("set_estado", { id, estado });
+    return { ok: true, error: null, queued: true };
+  }
+
+  const result = await actualizarEstadoSolicitud(id, estado);
+
+  if (esErrorDeRed(result)) {
+    await enqueueOp("set_estado", { id, estado });
+    return { ok: true, error: null, queued: true };
+  }
+
+  if (result.ok) {
+    await refreshSolicitudes();
+    return { ok: true, error: null, queued: false };
+  }
+
+  return { ok: false, error: result.error ?? "Error desconocido", queued: false };
 }
 
 export function getSolicitudDate(item: SolicitudRemota): Date | null {
@@ -215,20 +306,31 @@ export async function actualizarCotizacionRemota(
   id: string,
   payload: Omit<RegistroOrdenTrabajoPayload, "id"> &
     Partial<{ estado: string; enOT: boolean }>,
-): Promise<{ ok: boolean; error: string | null }> {
+): Promise<{ ok: boolean; error: string | null; queued: boolean }> {
+  if (getNetworkState() === "offline") {
+    await enqueueOp("update_cotizacion", { id, campos: payload });
+    return { ok: true, error: null, queued: true };
+  }
+
   try {
     const result = await actualizarCotizacionSolicitud(id, payload);
 
-    if (result.ok) {
-      await refreshSolicitudes();
-      return { ok: true, error: null };
+    if (esErrorDeRed(result)) {
+      await enqueueOp("update_cotizacion", { id, campos: payload });
+      return { ok: true, error: null, queued: true };
     }
 
-    return { ok: false, error: result.error ?? "No se pudo actualizar la cotización." };
+    if (result.ok) {
+      await refreshSolicitudes();
+      return { ok: true, error: null, queued: false };
+    }
+
+    return { ok: false, error: result.error ?? "No se pudo actualizar la cotización.", queued: false };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : "Error desconocido",
+      queued: false,
     };
   }
 }
@@ -236,20 +338,31 @@ export async function actualizarCotizacionRemota(
 /** Elimina permanentemente una solicitud (cotización / OT / soporte). */
 export async function eliminarSolicitudRemota(
   id: string,
-): Promise<{ ok: boolean; error: string | null }> {
+): Promise<{ ok: boolean; error: string | null; queued: boolean }> {
+  if (getNetworkState() === "offline") {
+    await enqueueOp("delete_solicitud", { id });
+    return { ok: true, error: null, queued: true };
+  }
+
   try {
     const result = await eliminarSolicitud(id);
 
-    if (result.ok) {
-      await refreshSolicitudes();
-      return { ok: true, error: null };
+    if (esErrorDeRed(result)) {
+      await enqueueOp("delete_solicitud", { id });
+      return { ok: true, error: null, queued: true };
     }
 
-    return { ok: false, error: result.error ?? "No se pudo eliminar la solicitud." };
+    if (result.ok) {
+      await refreshSolicitudes();
+      return { ok: true, error: null, queued: false };
+    }
+
+    return { ok: false, error: result.error ?? "No se pudo eliminar la solicitud.", queued: false };
   } catch (error) {
     return {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      queued: false,
     };
   }
 }

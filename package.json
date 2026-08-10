@@ -1,7 +1,7 @@
 {
   "name": "fica-tostadores-app-v2",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Aplicación de escritorio para administración de Fica Tostadores (Tauri)",
   "type": "module",
   "scripts": {

@@ -7,7 +7,10 @@ import {
 } from "firebase/firestore";
 import { getDb } from "../lib/firebase";
 import { getConfig } from "../lib/config";
-import { actualizarProducto, eliminarProducto } from "../lib/web-api";
+import { getEffectiveSecret } from "../lib/secret";
+import { enqueueOp } from "../lib/offline-queue";
+import { getNetworkState, reportFailure } from "../lib/network";
+import { actualizarProducto, crearProducto as crearProductoApi, eliminarProducto } from "../lib/web-api";
 
 export interface ProductoCatalogo {
   id: string;
@@ -84,7 +87,8 @@ export function getPrecioLocal(producto: ProductoCatalogo): number {
 }
 
 function syncPriceToServer(productId: string, price: number): void {
-  const { webUrl, appSecret } = getConfig();
+  const { webUrl } = getConfig();
+  const appSecret = getEffectiveSecret();
 
   if (!webUrl || !appSecret) {
     return;
@@ -142,7 +146,8 @@ export interface SyncResult {
 
 /** Reenvía al servidor los precios pendientes (editados sin conexión). */
 export async function syncAllPreciosToServer(): Promise<SyncResult> {
-  const { webUrl, appSecret } = getConfig();
+  const { webUrl } = getConfig();
+  const appSecret = getEffectiveSecret();
   const prices = readLocalPrices();
   const ids = Object.keys(prices);
 
@@ -200,7 +205,17 @@ export async function syncAllPreciosToServer(): Promise<SyncResult> {
 export async function eliminarProductoCatalogo(
   id: string,
 ): Promise<{ ok: boolean; error: string | null }> {
+  if (getNetworkState() === "offline") {
+    await enqueueOp("eliminar_producto", { id });
+    return { ok: true, error: null };
+  }
+
   const result = await eliminarProducto(id);
+
+  if (!result.ok && result.status === null) {
+    await enqueueOp("eliminar_producto", { id });
+    return { ok: true, error: null };
+  }
 
   if (result.ok) {
     const wasPresent = catalogo.some((product) => product.id === id);
@@ -224,6 +239,32 @@ import type { ProductoUpdate } from "../lib/web-api";
 export interface ProductoUpdateLocal extends ProductoUpdate {}
 
 /**
+ * Crea un producto nuevo en Firestore (vía la API protegida de la web).
+ * El catálogo local se actualiza solo (Firestore onSnapshot).
+ */
+export async function crearProductoCatalogo(
+  campos: ProductoUpdateLocal,
+): Promise<{ ok: boolean; id: string | null; error: string | null }> {
+  if (getNetworkState() === "offline") {
+    await enqueueOp("crear_producto", { campos });
+    return { ok: true, id: null, error: null };
+  }
+
+  const result = await crearProductoApi(campos);
+
+  if (!result.ok && result.status === null) {
+    await enqueueOp("crear_producto", { campos });
+    return { ok: true, id: null, error: null };
+  }
+
+  if (result.ok && result.data) {
+    return { ok: true, id: result.data.id, error: null };
+  }
+
+  return { ok: false, id: null, error: result.error ?? "No se pudo crear el producto." };
+}
+
+/**
  * Actualiza campos editables de un producto en Firestore (vía la API protegida
  * de la web) y refleja el cambio en el catálogo local en tiempo real.
  */
@@ -234,6 +275,10 @@ export async function actualizarProductoCatalogo(
   const result = await actualizarProducto(id, campos);
 
   if (!result.ok) {
+    if (result.status === null) {
+      await enqueueOp("actualizar_producto", { id, campos });
+      return { ok: true, error: null };
+    }
     return {
       ok: false,
       error: result.error ?? "No se pudo actualizar el producto.",
@@ -289,6 +334,9 @@ export function startCatalogoLive(): () => void {
     },
     (error) => {
       console.warn("[catalog] No se pudo suscribir al catálogo en tiempo real", error);
+      if (!navigator.onLine) {
+        reportFailure();
+      }
     },
   );
 

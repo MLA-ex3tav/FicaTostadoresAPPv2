@@ -13,6 +13,9 @@ import {
   actualizarCotizacionRemota,
   refreshSolicitudes,
 } from "../services/solicitudes";
+import { enqueueOp } from "../lib/offline-queue";
+import { getNetworkState } from "../lib/network";
+import { getDraft, saveDraft, clearDraft } from "../lib/drafts";
 import { showToast } from "./toast";
 import { renderIcon } from "./icons";
 import { showConfirmDialog } from "./confirm-dialog";
@@ -65,8 +68,19 @@ interface EstadoWizard {
 
 const STEPS = ["Datos", "Productos", "Enviar"];
 
+const DRAFT_KIND = "cotizacion";
+
+interface BorradorCotizacion {
+  step: EstadoWizard["step"];
+  query: string;
+  cliente: ClienteDatos;
+  seleccion: Record<string, ItemSeleccionado>;
+  message: string;
+}
+
 let modal: HTMLElement | null = null;
 let lastStep = 0;
+let draftTimer: number | null = null;
 
 /** Id de la cotización que se está editando (null = nueva). */
 let editingId: string | null = null;
@@ -120,6 +134,69 @@ function hasContent(state: EstadoWizard): boolean {
     state.message.trim().length > 0 ||
     Object.keys(state.seleccion).length > 0
   );
+}
+
+/* ── Autosave de borradores (sobrevive a cierres forzosos) ── */
+
+function serializarBorrador(state: EstadoWizard): BorradorCotizacion {
+  return {
+    step: state.step,
+    query: state.query,
+    cliente: { ...state.cliente },
+    seleccion: Object.fromEntries(
+      Object.entries(state.seleccion).map(([id, item]) => [id, { ...item }]),
+    ),
+    message: state.message,
+  };
+}
+
+function aplicarBorrador(state: EstadoWizard, data: BorradorCotizacion): void {
+  if (data.step === 1 || data.step === 2 || data.step === 3) {
+    state.step = data.step;
+  }
+  if (typeof data.query === "string") {
+    state.query = data.query;
+  }
+  if (typeof data.message === "string") {
+    state.message = data.message;
+  }
+  if (data.cliente && typeof data.cliente === "object") {
+    for (const key of Object.keys(state.cliente)) {
+      const value = data.cliente[key as keyof ClienteDatos];
+      if (typeof value === "string") {
+        state.cliente[key as keyof ClienteDatos] = value;
+      }
+    }
+  }
+  if (data.seleccion && typeof data.seleccion === "object") {
+    state.seleccion = {};
+    for (const [productId, item] of Object.entries(data.seleccion)) {
+      const rec = item as Partial<ItemSeleccionado> | undefined;
+      state.seleccion[productId] = {
+        quantity: Math.max(1, Number(rec?.quantity ?? 1) || 1),
+        selectedColorId:
+          typeof rec?.selectedColorId === "string"
+            ? rec.selectedColorId
+            : DEFAULT_PRODUCT_COLOR_ID,
+        selectedColor:
+          typeof rec?.selectedColor === "string" ? rec.selectedColor : "",
+      };
+    }
+  }
+}
+
+/** Guarda el borrador (debounced) cuando hay contenido y no es una edición. */
+function scheduleSave(state: EstadoWizard): void {
+  if (editingId) return;
+  if (!hasContent(state)) return;
+
+  if (draftTimer !== null) {
+    window.clearTimeout(draftTimer);
+  }
+  draftTimer = window.setTimeout(() => {
+    draftTimer = null;
+    void saveDraft(DRAFT_KIND, serializarBorrador(state));
+  }, 400);
 }
 
 function seleccionItems(state: EstadoWizard): {
@@ -189,7 +266,7 @@ function renderStep1(state: EstadoWizard): string {
   return `
     <section class="cotizacion-form">
       <div class="cotizacion-form__grid">
-        <div class="cotizacion-field">
+        <div class="cotizacion-field" data-cotizacion-field-wrap="name">
           <label class="cotizacion-field__label" for="nc-name">Nombre / Razón social *</label>
           <input id="nc-name" class="cotizacion-field__input" type="text" value="${escapeHtml(c.name)}" placeholder="Ej. Juan Pérez" data-cotizacion-field="name" />
         </div>
@@ -454,6 +531,44 @@ function colapsarYQuitar(state: EstadoWizard, productId: string): void {
   }, 320);
 }
 
+function marcarCampoError(field: string): void {
+  const wrap = modal?.querySelector<HTMLElement>(
+    `[data-cotizacion-field-wrap="${field}"]`,
+  );
+  wrap?.classList.add("cotizacion-field--error");
+}
+
+function limpiarCampoError(field: string): void {
+  const wrap = modal?.querySelector<HTMLElement>(
+    `[data-cotizacion-field-wrap="${field}"]`,
+  );
+  wrap?.classList.remove("cotizacion-field--error");
+}
+
+function avanzarPaso(state: EstadoWizard): void {
+  if (state.step === 1 && !state.cliente.name.trim()) {
+    marcarCampoError("name");
+    const nameInput = modal?.querySelector<HTMLInputElement>("#nc-name");
+    nameInput?.focus();
+    showToast({
+      title: "Falta el nombre del cliente",
+      message: "Completa el nombre o razón social para continuar.",
+      tone: "warning",
+    });
+    return;
+  }
+  if (state.step === 2 && Object.keys(state.seleccion).length === 0) {
+    showToast({
+      title: "Selecciona productos",
+      message: "Agrega al menos un producto para continuar.",
+      tone: "warning",
+    });
+    return;
+  }
+  state.step = (state.step + 1) as EstadoWizard["step"];
+  renderModal(state);
+}
+
 function actualizarClearCotizacion(root: HTMLElement | null, query: string): void {
   const clearBtn = root?.querySelector<HTMLButtonElement>("[data-clear-cotizacion]");
   if (!clearBtn) return;
@@ -494,6 +609,12 @@ function bindEvents(state: EstadoWizard): void {
         } else {
           state.cliente[field] = input.value;
         }
+
+        if (field === "name" && input.value.trim()) {
+          limpiarCampoError("name");
+        }
+
+        scheduleSave(state);
       });
     });
 
@@ -514,6 +635,7 @@ function bindEvents(state: EstadoWizard): void {
 
         if (!hasAt && value.trim()) {
           event.preventDefault();
+          event.stopPropagation();
           const full = `${value.trim()}@gmail.com`;
           emailInput.value = full;
           state.cliente.email = full;
@@ -525,6 +647,7 @@ function bindEvents(state: EstadoWizard): void {
         const first = box?.querySelector<HTMLButtonElement>("[data-email-domain]");
         if (isOpen && first) {
           event.preventDefault();
+          event.stopPropagation();
           const domain = first.dataset.emailDomain;
           if (domain) aplicarSugerenciaEmail(state, emailInput, domain);
         }
@@ -634,24 +757,7 @@ function bindEvents(state: EstadoWizard): void {
   });
 
   modal.querySelector<HTMLButtonElement>("[data-cotizacion-next]")?.addEventListener("click", () => {
-    if (state.step === 1 && !state.cliente.name.trim()) {
-      showToast({
-        title: "Falta el nombre del cliente",
-        message: "Completa el nombre o razón social para continuar.",
-        tone: "warning",
-      });
-      return;
-    }
-    if (state.step === 2 && Object.keys(state.seleccion).length === 0) {
-      showToast({
-        title: "Selecciona productos",
-        message: "Agrega al menos un producto para continuar.",
-        tone: "warning",
-      });
-      return;
-    }
-    state.step = (state.step + 1) as EstadoWizard["step"];
-    renderModal(state);
+    avanzarPaso(state);
   });
 
   modal.querySelector<HTMLButtonElement>("[data-cotizacion-generate]")?.addEventListener("click", () => {
@@ -781,6 +887,7 @@ function renderModal(state: EstadoWizard): void {
 
   bindEvents(state);
   actualizarClearCotizacion(modal, state.query);
+  scheduleSave(state);
 
   if (state.step === 1) {
     const phoneInput = modal.querySelector<HTMLInputElement>("#nc-phone");
@@ -833,6 +940,38 @@ async function generar(state: EstadoWizard): Promise<void> {
       },
       products: productsPayload,
     };
+
+    // Sin conexión: la cotización se guarda en la cola offline durable y se
+    // enviará automáticamente cuando se recupere la red.
+    if (getNetworkState() === "offline") {
+      if (editingId && editingItem) {
+        const estado = String(editingItem.estado ?? "pendiente");
+        await enqueueOp("update_cotizacion", {
+          id: editingId,
+          campos: {
+            ...common,
+            estado,
+            enOT: Boolean(editingItem.enOT),
+          },
+        });
+      } else {
+        const quoteId = `COT-${Date.now().toString().slice(-6)}`;
+        await enqueueOp("registrar_ot", { payload: { id: quoteId, ...common } });
+      }
+
+      void clearDraft(DRAFT_KIND);
+      editingId = null;
+      editingItem = null;
+      closeNuevaCotizacion();
+      showToast({
+        title: "Cotización guardada localmente",
+        message: "Sin conexión: se enviará a la web automáticamente al reconectar.",
+        tone: "info",
+        icon: "fileText",
+        durationMs: 6000,
+      });
+      return;
+    }
 
     let item: SolicitudRemota;
     let editando = false;
@@ -901,6 +1040,7 @@ async function generar(state: EstadoWizard): Promise<void> {
 
     editingId = null;
     editingItem = null;
+    void clearDraft(DRAFT_KIND);
     closeNuevaCotizacion();
   } catch (error) {
     console.error("Error al generar cotización:", error);
@@ -977,13 +1117,20 @@ export function openNuevaCotizacion(editar?: SolicitudRemota): void {
 
   const solicitarDescarte = async (): Promise<boolean> => {
     if (!hasContent(state)) return true;
-    return showConfirmDialog({
+
+    const confirmado = await showConfirmDialog({
       title: "¿Descartar la cotización en curso?",
       message: "Se perderán los datos que has introducido en este formulario.",
       confirmText: "Descartar",
       cancelText: "Continuar editando",
       tone: "danger",
     });
+
+    if (confirmado) {
+      void clearDraft(DRAFT_KIND);
+    }
+
+    return confirmado;
   };
 
   modal.querySelector<HTMLButtonElement>("[data-cotizacion-close]")?.addEventListener("click", async () => {
@@ -1000,19 +1147,74 @@ export function openNuevaCotizacion(editar?: SolicitudRemota): void {
     }
   });
 
-  const onEscape = async (event: KeyboardEvent): Promise<void> => {
+  const onKeyDown = async (event: KeyboardEvent): Promise<void> => {
     if (event.key === "Escape" && !state.generating) {
       if (await solicitarDescarte()) {
-        document.removeEventListener("keydown", onEscape);
+        document.removeEventListener("keydown", onKeyDown);
         closeNuevaCotizacion();
+      }
+      return;
+    }
+
+    // Enter para avanzar de paso / generar (fuera de inputs de texto)
+    if (event.key === "Enter" && !state.generating) {
+      const target = event.target as HTMLElement | null;
+      const isTextInput = Boolean(
+        target?.closest("input, textarea, select, [contenteditable='true']"),
+      );
+
+      // En paso 1, Enter dentro de un input avanza (comportamiento de formulario).
+      if (state.step === 1 && isTextInput) {
+        const isTextarea = Boolean(target?.closest("textarea"));
+        if (!isTextarea) {
+          event.preventDefault();
+          avanzarPaso(state);
+        }
+        return;
+      }
+
+      if (isTextInput) return;
+
+      event.preventDefault();
+      if (state.step === 1 || state.step === 2) {
+        avanzarPaso(state);
+      } else if (state.step === 3) {
+        const generate = modal?.querySelector<HTMLButtonElement>("[data-cotizacion-generate]");
+        if (generate && !generate.disabled) {
+          generate.click();
+        }
       }
     }
   };
-  document.addEventListener("keydown", onEscape);
+  document.addEventListener("keydown", onKeyDown);
 
   document.body.classList.add("modal-open");
   document.body.appendChild(modal);
   renderModal(state);
+
+  // Borrador guardado de una sesión anterior (solo cotizaciones nuevas).
+  if (!editar) {
+    void (async () => {
+      const draft = await getDraft<BorradorCotizacion>(DRAFT_KIND);
+      if (!draft || !draft.data) return;
+
+      const restaurar = await showConfirmDialog({
+        title: "Borrador encontrado",
+        message: `Hay una cotización sin terminar guardada el ${new Date(draft.updatedAt).toLocaleString()}. ¿Quieres reanudarla?`,
+        confirmText: "Reanudar",
+        cancelText: "Descartar",
+        tone: "info",
+        icon: "fileText",
+      });
+
+      if (restaurar) {
+        aplicarBorrador(state, draft.data);
+      } else {
+        void clearDraft(DRAFT_KIND);
+      }
+      renderModal(state);
+    })();
+  }
 
   void loadCatalogo()
     .then((productos) => {

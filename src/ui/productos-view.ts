@@ -1,5 +1,6 @@
 import {
   actualizarProductoCatalogo,
+  crearProductoCatalogo,
   eliminarProductoCatalogo,
   getCatalogo,
   getPrecioLocal,
@@ -11,12 +12,24 @@ import {
   type ProductoCatalogo,
   type ProductoUpdateLocal,
 } from "../services/catalog";
+import {
+  importarProductos,
+  parseImportJson,
+  previewImportacion,
+} from "../services/productos-import";
 import { renderIcon } from "./icons";
 import { showToast } from "./toast";
 import { openContextMenu, type ContextMenuItem } from "./context-menu";
 import { showConfirmDialog } from "./confirm-dialog";
 import { PRODUCT_COLORS } from "../lib/product-colors";
 import { loadCatalogConfig } from "../services/catalog-config";
+import { procesarImagenSubida } from "./image-editor";
+import {
+  createSelectField,
+  type SelectField,
+  type SelectFieldOption,
+} from "./select-field";
+import { conLoader } from "./loader";
 
 function escapeHtml(value: unknown): string {
   const entities: Record<string, string> = {
@@ -102,13 +115,16 @@ function sortProducts(
   });
 }
 
-async function loadCategoriaOptions(): Promise<{ id: string; label: string }[]> {
+async function loadCategoriaOptions(): Promise<
+  { id: string; label: string; catalogId: string }[]
+> {
   if (categoriaOptionsCache) return categoriaOptionsCache;
   try {
     const config = await loadCatalogConfig();
     categoriaOptionsCache = config.categories.map((c) => ({
       id: c.id,
       label: c.label,
+      catalogId: c.catalogId,
     }));
   } catch {
     categoriaOptionsCache = [];
@@ -116,13 +132,33 @@ async function loadCategoriaOptions(): Promise<{ id: string; label: string }[]> 
   return categoriaOptionsCache;
 }
 
+async function loadCatalogoOptions(): Promise<
+  { id: string; label: string }[]
+> {
+  if (catalogoOptionsCache) return catalogoOptionsCache;
+  try {
+    const config = await loadCatalogConfig();
+    catalogoOptionsCache = config.catalogs.map((c) => ({
+      id: c.id,
+      label: c.label,
+    }));
+  } catch {
+    catalogoOptionsCache = [];
+  }
+  return catalogoOptionsCache;
+}
+
 let hasLoaded = false;
 let syncing = false;
 let searchQuery = "";
+let catalogoFiltro = "";
 let categoriaFiltro = "";
 let sortKey: "nombre" | "catalogo" | "categoria" | null = null;
 let sortDir: "asc" | "desc" = "asc";
-let categoriaOptionsCache: { id: string; label: string }[] | null = null;
+let catalogoOptionsCache: { id: string; label: string }[] | null = null;
+let categoriaOptionsCache:
+  | { id: string; label: string; catalogId: string }[]
+  | null = null;
 
 function productRow(p: ProductoCatalogo): string {
   const nombre = escapeHtml(p.name ?? p.modelo ?? "Sin nombre");
@@ -149,6 +185,12 @@ function updateRows(panel: HTMLElement, productos: ProductoCatalogo[]): void {
 
   const query = searchQuery.trim().toLowerCase();
   let filtered = productos.filter((product) => matchesQuery(product, query));
+
+  if (catalogoFiltro) {
+    filtered = filtered.filter(
+      (product) => productCatalog(product) === catalogoFiltro,
+    );
+  }
 
   if (categoriaFiltro) {
     filtered = filtered.filter(
@@ -229,7 +271,10 @@ async function borrarProducto(product: ProductoCatalogo): Promise<void> {
   });
   if (!confirmado) return;
 
-  const result = await eliminarProductoCatalogo(product.id);
+  const result = await conLoader(
+    eliminarProductoCatalogo(product.id),
+    "Eliminando producto…",
+  );
   if (result.ok) {
     showToast({
       title: "Producto borrado",
@@ -259,6 +304,7 @@ function asBoolean(value: unknown): boolean {
 
 async function promptEditarProducto(
   product: ProductoCatalogo,
+  esNuevo = false,
 ): Promise<ProductoUpdateLocal | null> {
   const nombre = asString(product.name ?? product.modelo);
   const modelo = asString(product.modelo);
@@ -279,6 +325,26 @@ async function promptEditarProducto(
   const promoTag = asString(product.promoTag);
   const promoDescription = asString(product.promoDescription);
   const isFeatured = asBoolean(product.isFeatured);
+  const precioInicial = getPrecioLocal(product);
+
+  const primerImagen = Array.isArray(product.images)
+    ? product.images[0]
+    : undefined;
+  const srcDeVista = (view: unknown): string => {
+    if (view && typeof view === "object") {
+      const src = (view as Record<string, unknown>).src;
+      return typeof src === "string" ? src : "";
+    }
+    return "";
+  };
+  const imagenCarousel =
+    (primerImagen && typeof primerImagen === "object"
+      ? srcDeVista((primerImagen as Record<string, unknown>).carousel)
+      : "") || "";
+  const imagenProducto =
+    (primerImagen && typeof primerImagen === "object"
+      ? srcDeVista((primerImagen as Record<string, unknown>).product)
+      : "") || imagenCarousel || "";
 
   const config = await loadCatalogConfig();
 
@@ -328,6 +394,34 @@ async function promptEditarProducto(
       `Editar producto ${nombre || "sin nombre"}`,
     );
 
+    let imagenCarouselSel = imagenCarousel;
+    let imagenProductoSel = imagenProducto;
+    let imagenCambiada = false;
+    let focusCarousel = { x: 50, y: 50 };
+    let focusProduct = { x: 50, y: 50 };
+    try {
+      const focusDeVista = (view: unknown): { x: number; y: number } => {
+        if (view && typeof view === "object") {
+          const f = (view as Record<string, unknown>).focus;
+          if (f && typeof f === "object") {
+            const x = Number((f as Record<string, unknown>).x);
+            const y = Number((f as Record<string, unknown>).y);
+            if (Number.isFinite(x) && Number.isFinite(y)) {
+              return { x: Math.min(100, Math.max(0, x)), y: Math.min(100, Math.max(0, y)) };
+            }
+          }
+        }
+        return { x: 50, y: 50 };
+      };
+      if (primerImagen && typeof primerImagen === "object") {
+        const record = primerImagen as Record<string, unknown>;
+        focusCarousel = focusDeVista(record.carousel);
+        focusProduct = focusDeVista(record.product);
+      }
+    } catch {
+      // valores por defecto
+    }
+
     const textField = (
       id: string,
       label: string,
@@ -344,14 +438,32 @@ async function promptEditarProducto(
         }
       </div>`;
 
-    const linesField = (
+    const listField = (
       id: string,
       label: string,
-      lines: string[],
+      items: string[],
+      placeholder: string,
     ): string => `
       <div class="precio-dialog__field" style="gap: 8px;">
-        <label class="precio-dialog__label" for="${id}">${label} <span class="cell-muted">(una por línea)</span></label>
-        <textarea id="${id}" class="editar-producto__textarea" rows="4" autocomplete="off">${escapeHtml(lines.join("\n"))}</textarea>
+        <label class="precio-dialog__label" for="${id}">${label}</label>
+        <div class="editar-producto__list" data-list="${id}">
+          ${
+            items.length === 0
+              ? `<div class="editar-producto__list-empty">Sin elementos. Agrega uno abajo.</div>`
+              : items
+                  .map(
+                    (item, index) => `
+                      <div class="editar-producto__list-item">
+                        <input type="text" class="editar-producto__input" data-list-input="${id}" data-index="${index}" maxlength="300" value="${escapeHtml(item)}" placeholder="${placeholder}" autocomplete="off" />
+                        <button type="button" class="editar-producto__list-remove" data-list-remove="${id}" data-index="${index}" aria-label="Quitar" title="Quitar">${renderIcon("close", { size: 13 })}</button>
+                      </div>`,
+                  )
+                  .join("")
+          }
+        </div>
+        <button type="button" class="btn btn--secondary btn--sm" data-list-add="${id}">
+          ${renderIcon("add", { size: 13 })} Agregar
+        </button>
       </div>`;
 
     const selectField = (
@@ -425,8 +537,8 @@ async function promptEditarProducto(
         <header class="precio-dialog__header">
           <div class="precio-dialog__icon" aria-hidden="true">${renderIcon("gear", { size: 20 })}</div>
           <div class="precio-dialog__head">
-            <h3 class="precio-dialog__title">Editar producto</h3>
-            <p class="precio-dialog__product" title="${escapeHtml(product.id)}">${escapeHtml(product.id)}</p>
+            <h3 class="precio-dialog__title">${esNuevo ? "Nuevo producto" : "Editar producto"}</h3>
+            <p class="precio-dialog__product" title="${escapeHtml(product.id)}">${escapeHtml(esNuevo ? "Se creará al guardar" : product.id)}</p>
           </div>
           <button type="button" class="precio-dialog__close" data-editar-cancel aria-label="Cerrar" title="Cerrar">
             ${renderIcon("close", { size: 18 })}
@@ -444,7 +556,6 @@ async function promptEditarProducto(
           ${[
             ["general", "General"],
             ["estado", "Estado y Colores"],
-            ["promo", "Promoción"],
             ["descripcion", "Descripción"],
             ["ficha", "Ficha técnica"],
           ]
@@ -470,6 +581,58 @@ async function promptEditarProducto(
               ${selectField("editar-catalogo", "Catálogo", catalogoOptionsCompleto, catalogoSeleccionado)}
               ${selectField("editar-categoria", "Categoría", categoriaOptionsCompleto(catalogoSeleccionado, categoriaIdActual), categoriaValida(catalogoSeleccionado, categoriaIdActual))}
               ${textField("editar-capacity", "Capacidad", capacidad, 120)}
+              <div class="precio-dialog__field" style="gap: 8px;">
+                <label class="precio-dialog__label" for="editar-precio">Precio (CLP)</label>
+                <input id="editar-precio" class="editar-producto__input" type="number" min="0" step="1" inputmode="numeric" value="${precioInicial > 0 ? precioInicial : ""}" placeholder="Ej. 499990" autocomplete="off" />
+              </div>
+              <div class="editar-producto__image-field">
+                <label class="precio-dialog__label">Imágenes del producto</label>
+                <p class="editar-producto__image-help">Puedes usar una imagen distinta para el carrusel (inicio) y para la vista de productos. Se optimizan a WebP.</p>
+                <div class="editar-producto__images-grid">
+                  <div class="editar-producto__image-card" data-image-card-carousel ${imagenCarousel ? "" : "is-empty"}>
+                    <span class="editar-producto__image-label">Carrusel · 5:2</span>
+                    <div class="editar-producto__image-preview editar-producto__image-preview--carousel" data-image-preview-carousel ${imagenCarousel ? "" : "hidden"}>
+                      <img src="${escapeHtml(imagenCarousel)}" alt="Vista carrusel" data-image-img-carousel />
+                      <span class="editar-producto__image-focus-dot" data-focus-dot-carousel style="left:${focusCarousel.x}%;top:${focusCarousel.y}%"></span>
+                      <div class="editar-producto__image-overlay">
+                        <button type="button" class="editar-producto__image-action" data-editar-imagen-carousel>
+                          ${renderIcon("box", { size: 14 })} Cambiar
+                        </button>
+                        <button type="button" class="editar-producto__image-action editar-producto__image-action--danger" data-editar-imagen-carousel-quitar>
+                          ${renderIcon("close", { size: 14 })} Quitar
+                        </button>
+                      </div>
+                    </div>
+                    <button type="button" class="editar-producto__image-empty" data-image-empty-carousel ${imagenCarousel ? "hidden" : ""} data-editar-imagen-carousel>
+                      <span class="editar-producto__image-empty-icon">${renderIcon("box", { size: 24 })}</span>
+                      <span class="editar-producto__image-empty-title">+ Agregar carrusel</span>
+                      <span class="editar-producto__image-empty-hint">Portada del inicio</span>
+                    </button>
+                  </div>
+                  <div class="editar-producto__image-card" data-image-card-product ${imagenProducto ? "" : "is-empty"}>
+                    <span class="editar-producto__image-label">Producto · 3:2</span>
+                    <div class="editar-producto__image-preview" data-image-preview-product ${imagenProducto ? "" : "hidden"}>
+                      <img src="${escapeHtml(imagenProducto)}" alt="Vista de producto" data-image-img-product />
+                      <span class="editar-producto__image-focus-dot" data-focus-dot-product style="left:${focusProduct.x}%;top:${focusProduct.y}%"></span>
+                      <div class="editar-producto__image-overlay">
+                        <button type="button" class="editar-producto__image-action" data-editar-imagen-product>
+                          ${renderIcon("box", { size: 14 })} Cambiar
+                        </button>
+                        <button type="button" class="editar-producto__image-action editar-producto__image-action--danger" data-editar-imagen-product-quitar>
+                          ${renderIcon("close", { size: 14 })} Quitar
+                        </button>
+                      </div>
+                    </div>
+                    <button type="button" class="editar-producto__image-empty" data-image-empty-product ${imagenProducto ? "hidden" : ""} data-editar-imagen-product>
+                      <span class="editar-producto__image-empty-icon">${renderIcon("box", { size: 24 })}</span>
+                      <span class="editar-producto__image-empty-title">+ Agregar producto</span>
+                      <span class="editar-producto__image-empty-hint">Catálogo y ficha</span>
+                    </button>
+                  </div>
+                </div>
+                <input type="file" accept="image/*" class="editar-producto__image-input" data-image-input-carousel />
+                <input type="file" accept="image/*" class="editar-producto__image-input" data-image-input-product />
+              </div>
             </div>
           </section>
 
@@ -479,18 +642,13 @@ async function promptEditarProducto(
                 ${switchField("editar-out-of-stock", "Modo Agotado", isOutOfStock ? "El equipo figura con insignia de AGOTADO y no se puede cotizar." : "Marca el equipo como sin stock. Aparecerá con insignia de AGOTADO.", isOutOfStock, "danger")}
                 ${switchField("editar-disable-colors", "Deshabilitar selección de colores", disableColors ? "Los clientes verán el equipo sin selector de color." : "Bloquea el selector de color en la ficha del producto.", disableColors)}
                 ${switchField("editar-is-featured", "Destacar en Inicio", isFeatured ? "El equipo aparece de forma prioritaria en la sección destacada del Inicio." : "Marca este equipo para mostrarlo prioritariamente en la página de inicio.", isFeatured)}
+                ${switchField("editar-is-promo", "Producto en Promoción / Oferta", isPromo ? "El equipo se destaca con distintivos de promo en el catálogo y ficha." : "Destaca el equipo con distintivos especiales de promo.", isPromo, "warning")}
               </div>
-              ${swatchesField()}
-            </div>
-          </section>
-
-          <section class="editar-producto__section" data-editar-section="promo" role="tabpanel">
-            <div class="editar-producto__grid">
-              ${switchField("editar-is-promo", "Producto en Promoción / Oferta", isPromo ? "El equipo se destaca con distintivos de promo en el catálogo y ficha." : "Destaca el equipo con distintivos especiales de promo.", isPromo, "warning")}
               <div class="editar-producto__promo-fields" data-promo-fields ${isPromo ? "" : "hidden"}>
                 ${textField("editar-promo-tag", "Etiqueta de Promo (Texto corto)", promoTag, 100)}
                 ${textField("editar-promo-desc", "Detalle explicativo (Opcional)", promoDescription, 300)}
               </div>
+              ${swatchesField()}
             </div>
           </section>
 
@@ -503,8 +661,8 @@ async function promptEditarProducto(
 
           <section class="editar-producto__section" data-editar-section="ficha" role="tabpanel">
             <div class="editar-producto__grid">
-              ${linesField("editar-specs", "Especificaciones", specs)}
-              ${linesField("editar-features", "Características", features)}
+              ${listField("editar-specs", "Especificaciones", specs, "Ej. 1.800 W de potencia")}
+              ${listField("editar-features", "Características", features, "Ej. Fácil de limpiar")}
             </div>
           </section>
         </div>
@@ -595,6 +753,201 @@ async function promptEditarProducto(
         });
       });
 
+    const actualizarPreviewImagen = (
+      view: "carousel" | "product",
+      src: string,
+    ): void => {
+      const preview = overlay.querySelector<HTMLElement>(`[data-image-preview-${view}]`);
+      const card = overlay.querySelector<HTMLElement>(`[data-image-card-${view}]`);
+      const empty = overlay.querySelector<HTMLButtonElement>(`[data-image-empty-${view}]`);
+      const img = preview?.querySelector<HTMLElement>(`[data-image-img-${view}]`);
+      const dot = overlay.querySelector<HTMLElement>(`[data-focus-dot-${view}]`);
+      if (!preview) return;
+      if (src) {
+        preview.hidden = false;
+        if (empty) empty.hidden = true;
+        card?.classList.remove("is-empty");
+        const imgEl = preview.querySelector<HTMLImageElement>("img");
+        if (imgEl) imgEl.src = src;
+        // Al subir una imagen nueva, re-aplica el foco actual (o el centro).
+        if (img) {
+          const focus = view === "carousel" ? focusCarousel : focusProduct;
+          img.style.objectPosition = `${focus.x}% ${focus.y}%`;
+        }
+        if (dot) {
+          const focus = view === "carousel" ? focusCarousel : focusProduct;
+          dot.style.left = `${focus.x}%`;
+          dot.style.top = `${focus.y}%`;
+        }
+      } else {
+        preview.hidden = true;
+        if (empty) empty.hidden = false;
+        card?.classList.add("is-empty");
+      }
+    };
+
+    const bindImageUpload = (
+      view: "carousel" | "product",
+      inputSelector: string,
+      buttonSelector: string,
+    ): void => {
+      const input = overlay.querySelector<HTMLInputElement>(inputSelector);
+      const buttons = overlay.querySelectorAll<HTMLButtonElement>(buttonSelector);
+
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          // Click síncrono sobre el input persistente (gesto de usuario directo).
+          input?.click();
+        });
+      });
+
+      input?.addEventListener("change", () => {
+        const file = input.files?.[0];
+        input.value = "";
+        if (!file) return;
+
+        void (async () => {
+          const result = await procesarImagenSubida(file, view);
+          if (!result) return;
+          if (view === "carousel" && result.carouselUrl) {
+            imagenCarouselSel = result.carouselUrl;
+            imagenCambiada = true;
+            actualizarPreviewImagen("carousel", imagenCarouselSel);
+          } else if (view === "product" && result.productUrl) {
+            imagenProductoSel = result.productUrl;
+            imagenCambiada = true;
+            actualizarPreviewImagen("product", imagenProductoSel);
+          }
+        })();
+      });
+    };
+
+    // Carrusel: botones "agregar" y "cambiar" abren el mismo input.
+    bindImageUpload("carousel", "[data-image-input-carousel]", "[data-editar-imagen-carousel]");
+    // Producto: botones "agregar" y "cambiar" abren el mismo input.
+    bindImageUpload("product", "[data-image-input-product]", "[data-editar-imagen-product]");
+
+    overlay
+      .querySelector<HTMLButtonElement>("[data-editar-imagen-carousel-quitar]")
+      ?.addEventListener("click", () => {
+        imagenCarouselSel = "";
+        imagenCambiada = true;
+        actualizarPreviewImagen("carousel", "");
+      });
+
+    overlay
+      .querySelector<HTMLButtonElement>("[data-editar-imagen-product-quitar]")
+      ?.addEventListener("click", () => {
+        imagenProductoSel = "";
+        imagenCambiada = true;
+        actualizarPreviewImagen("product", "");
+      });
+
+    // Arrastrar la imagen para ajustar el encuadre (focus), como en la web.
+    const bindFocusDrag = (view: "carousel" | "product"): void => {
+      const preview = overlay.querySelector<HTMLElement>(`[data-image-preview-${view}]`);
+      const img = overlay.querySelector<HTMLElement>(`[data-image-img-${view}]`);
+      const dot = overlay.querySelector<HTMLElement>(`[data-focus-dot-${view}]`);
+      if (!preview || !img || !dot) return;
+      const state =
+        view === "carousel"
+          ? { get: () => focusCarousel, set: (f: { x: number; y: number }) => { focusCarousel = f; } }
+          : { get: () => focusProduct, set: (f: { x: number; y: number }) => { focusProduct = f; } };
+
+      const update = (clientX: number, clientY: number): void => {
+        const rect = preview.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        const x = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+        const y = Math.min(100, Math.max(0, ((clientY - rect.top) / rect.height) * 100));
+        state.set({ x: Math.round(x), y: Math.round(y) });
+        img.style.objectPosition = `${state.get().x}% ${state.get().y}%`;
+        dot.style.left = `${state.get().x}%`;
+        dot.style.top = `${state.get().y}%`;
+        imagenCambiada = true;
+      };
+
+      let dragging = false;
+      preview.addEventListener("pointerdown", (event) => {
+        if ((event.target as HTMLElement).closest("button")) return;
+        dragging = true;
+        preview.setPointerCapture?.(event.pointerId);
+        update(event.clientX, event.clientY);
+      });
+      preview.addEventListener("pointermove", (event) => {
+        if (!dragging) return;
+        update(event.clientX, event.clientY);
+      });
+      const endDrag = (): void => { dragging = false; };
+      preview.addEventListener("pointerup", endDrag);
+      preview.addEventListener("pointercancel", endDrag);
+    };
+
+    bindFocusDrag("carousel");
+    bindFocusDrag("product");
+
+    // Campos de lista dinámica (especificaciones y características)
+    const renderList = (id: string, values: string[]): void => {
+      const container = overlay.querySelector<HTMLElement>(`[data-list="${id}"]`);
+      if (!container) return;
+      container.innerHTML =
+        values.length === 0
+          ? `<div class="editar-producto__list-empty">Sin elementos. Agrega uno abajo.</div>`
+          : values
+              .map(
+                (item, index) => `
+                  <div class="editar-producto__list-item">
+                    <input type="text" class="editar-producto__input" data-list-input="${id}" data-index="${index}" maxlength="300" value="${escapeHtml(item)}" autocomplete="off" />
+                    <button type="button" class="editar-producto__list-remove" data-list-remove="${id}" data-index="${index}" aria-label="Quitar" title="Quitar">${renderIcon("close", { size: 13 })}</button>
+                  </div>`,
+              )
+              .join("");
+    };
+
+    const listaEstados: Record<string, string[]> = {
+      "editar-specs": [...specs],
+      "editar-features": [...features],
+    };
+
+    overlay.querySelectorAll<HTMLButtonElement>("[data-list-add]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.listAdd;
+        if (!id) return;
+        const current = listaEstados[id] ?? [];
+        current.push("");
+        listaEstados[id] = current;
+        renderList(id, current);
+        const lastInput = overlay.querySelector<HTMLInputElement>(
+          `[data-list="${id}"] [data-list-input]:last-child`,
+        );
+        lastInput?.focus();
+      });
+    });
+
+    overlay.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement;
+      const removeBtn = target.closest<HTMLButtonElement>("[data-list-remove]");
+      if (!removeBtn) return;
+      const id = removeBtn.dataset.listRemove;
+      const index = Number(removeBtn.dataset.index);
+      if (!id || !Number.isFinite(index)) return;
+      const current = listaEstados[id] ?? [];
+      current.splice(index, 1);
+      listaEstados[id] = current;
+      renderList(id, current);
+    });
+
+    overlay.addEventListener("input", (event) => {
+      const target = event.target as HTMLInputElement;
+      const input = target.closest<HTMLInputElement>("[data-list-input]");
+      if (!input) return;
+      const id = input.dataset.listInput;
+      const index = Number(input.dataset.index);
+      if (!id || !Number.isFinite(index)) return;
+      const current = listaEstados[id] ?? [];
+      current[index] = input.value;
+      listaEstados[id] = current;
+    });
+
     overlay
       .querySelectorAll<HTMLTextAreaElement>("textarea[maxlength]")
       .forEach((el) => {
@@ -613,10 +966,9 @@ async function promptEditarProducto(
     const getValor = (id: string): string =>
       (overlay.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`#${id}`)
         ?.value ?? "").trim();
-    const getLines = (id: string): string[] =>
-      getValor(id)
-        .split("\n")
-        .map((line) => line.trim())
+    const getList = (id: string): string[] =>
+      (listaEstados[id] ?? [])
+        .map((value) => value.trim())
         .filter(Boolean);
 
     const previewName = overlay.querySelector<HTMLElement>("[data-preview-name]");
@@ -679,6 +1031,11 @@ async function promptEditarProducto(
     };
 
     okBtn.addEventListener("click", () => {
+      const precioRaw = getValor("editar-precio");
+      const precioNum = precioRaw
+        ? Math.max(0, Number(precioRaw.replace(/[^0-9]/g, "")) || 0)
+        : 0;
+
       const updates: ProductoUpdateLocal = {
         name: getValor("editar-nombre") || undefined,
         modelo: getValor("editar-modelo") || undefined,
@@ -690,8 +1047,8 @@ async function promptEditarProducto(
         capacity: getValor("editar-capacity") || undefined,
         description: getValor("editar-description") || undefined,
         longDescription: getValor("editar-long-description") || "",
-        specs: getLines("editar-specs"),
-        features: getLines("editar-features"),
+        specs: getList("editar-specs"),
+        features: getList("editar-features"),
         isOutOfStock: switchState["editar-out-of-stock"],
         disableColors: switchState["editar-disable-colors"],
         isPromo: switchState["editar-is-promo"],
@@ -700,6 +1057,27 @@ async function promptEditarProducto(
         promoDescription: getValor("editar-promo-desc") || undefined,
         disabledColors: [...blockedColors],
       };
+
+      if (precioNum > 0) {
+        updates.listPrice = precioNum;
+        updates.price = precioNum;
+        updates.precio = precioNum;
+      }
+
+      if (imagenCambiada) {
+        if (imagenCarouselSel || imagenProductoSel) {
+          const carouselSrc = imagenCarouselSel || imagenProductoSel;
+          const productSrc = imagenProductoSel || imagenCarouselSel;
+          updates.images = [
+            {
+              carousel: { src: carouselSrc, focus: { ...focusCarousel } },
+              product: { src: productSrc, focus: { ...focusProduct } },
+            },
+          ];
+        } else {
+          updates.images = [];
+        }
+      }
 
       if (!updates.name && !updates.modelo && !updates.catalogo && !updates.categoria && !updates.capacity && !updates.specs?.length && !updates.features?.length) {
         cerrar(null);
@@ -718,6 +1096,12 @@ async function promptEditarProducto(
         if (event.key === "Escape") {
           event.preventDefault();
           cerrar(null);
+          return;
+        }
+        // Enter guarda el producto, salvo en áreas de texto multilínea.
+        if (event.key === "Enter" && !(input instanceof HTMLTextAreaElement)) {
+          event.preventDefault();
+          okBtn.click();
         }
       });
     });
@@ -746,6 +1130,146 @@ async function editarProducto(product: ProductoCatalogo): Promise<void> {
     showToast({
       title: "Error al actualizar",
       message: result.error ?? "No se pudo actualizar el producto.",
+      tone: "error",
+    });
+  }
+}
+
+function importarJson(): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.style.display = "none";
+  document.body.appendChild(input);
+
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+
+    void (async () => {
+      try {
+        const text = await file.text();
+        const body: unknown = JSON.parse(text);
+        const parsed = parseImportJson(body);
+
+        if (parsed.rows.length === 0) {
+          showToast({
+            title: "No hay productos válidos",
+            message: parsed.errors[0]?.message ?? "El JSON no contiene filas con id y nombre.",
+            tone: "warning",
+            icon: "information",
+          });
+          return;
+        }
+
+        if (parsed.errors.length > 0) {
+          showToast({
+            title: "Filas omitidas",
+            message: `${parsed.errors.length} fila(s) sin id o nombre fueron ignoradas.`,
+            tone: "info",
+            icon: "information",
+          });
+        }
+
+        const { nuevos, actualizan } = previewImportacion(parsed.rows);
+
+        const confirmado = await showConfirmDialog({
+          title: "Importar productos",
+          message: `${parsed.rows.length} productos en el archivo · ${nuevos} nuevos · ${actualizan} actualizarán precio y serie. Se aplica la misma lógica de la web (catálogo/categoría automáticos).`,
+          confirmText: "Importar",
+          cancelText: "Cancelar",
+          tone: "info",
+          icon: "box",
+        });
+
+        if (!confirmado) return;
+
+        const resumen = await importarProductos(parsed.rows);
+
+        if (resumen.failed.length === 0) {
+          showToast({
+            title: "Importación completada",
+            message: `${resumen.created} creados · ${resumen.updated} actualizados (de ${resumen.total}).`,
+            tone: "success",
+            icon: "check",
+            durationMs: 8000,
+          });
+        } else {
+          showToast({
+            title: "Importación con errores",
+            message: `${resumen.created} creados · ${resumen.updated} actualizados · ${resumen.failed.length} fallaron (ej: ${resumen.failed[0]?.message ?? "desconocido"}).`,
+            tone: "warning",
+            icon: "information",
+            durationMs: 12000,
+          });
+        }
+      } catch {
+        showToast({
+          title: "JSON inválido",
+          message: "El archivo no es un JSON válido o tiene un formato inesperado.",
+          tone: "error",
+          icon: "close",
+        });
+      }
+    })();
+  });
+
+  input.click();
+}
+
+async function nuevoProducto(): Promise<void> {
+  const vacio: ProductoCatalogo = {
+    id: "",
+    name: "",
+    modelo: "",
+    serie: "",
+    catalog: "",
+    catalogo: "",
+    category: "",
+    categoria: "",
+    capacity: "",
+    description: "",
+    longDescription: "",
+    specs: [],
+    features: [],
+    isOutOfStock: false,
+    disableColors: false,
+    isPromo: false,
+    isFeatured: false,
+    promoTag: "",
+    promoDescription: "",
+    disabledColors: [],
+  };
+
+  const campos = await promptEditarProducto(vacio, true);
+  if (campos === null) return;
+
+  if (!campos.name?.trim()) {
+    showToast({
+      title: "Falta el nombre",
+      message: "El nombre del producto es obligatorio para crearlo.",
+      tone: "warning",
+    });
+    return;
+  }
+
+  const result = await crearProductoCatalogo(campos);
+
+  if (result.ok) {
+    if (result.id && campos.listPrice && campos.listPrice > 0) {
+      setPrecioLocal(result.id, campos.listPrice);
+    }
+    showToast({
+      title: "Producto creado",
+      message: `“${campos.name}” fue creado y sincronizado en la web y la app móvil.`,
+      tone: "success",
+      icon: "add",
+    });
+  } else {
+    showToast({
+      title: "Error al crear",
+      message: result.error ?? "No se pudo crear el producto.",
       tone: "error",
     });
   }
@@ -890,6 +1414,7 @@ function updateSortHeaders(panel: HTMLElement): void {
 
 async function drawProductos(productos: ProductoCatalogo[]): Promise<void> {
   const panel = document.getElementById("productos-root");
+  const filtros = document.getElementById("productos-filtros");
   if (!panel) return;
 
   if (productos.length === 0) {
@@ -904,25 +1429,28 @@ async function drawProductos(productos: ProductoCatalogo[]): Promise<void> {
 
   // Deja el shell estático intacto; solo re-renderiza las filas.
   const actualizarClear = (input: HTMLInputElement): void => {
-    const clearBtn = panel.querySelector<HTMLButtonElement>(`[data-clear="${input.id}"]`);
+    const clearBtn = input
+      .closest(".search-field")
+      ?.querySelector<HTMLButtonElement>(`[data-clear="${input.id}"]`);
     if (!clearBtn) return;
     clearBtn.classList.toggle("is-visible", input.value.length > 0);
   };
 
-  const searchInput = panel.querySelector<HTMLInputElement>("#productos-search");
+  const searchInput = document.getElementById("productos-search");
   if (!searchInput) {
     const categoriaOptions = await loadCategoriaOptions();
+    const catalogoOptions = await loadCatalogoOptions();
 
-    panel.innerHTML = `
-      <div class="conn-updated">Los precios se sincronizan en tiempo real con Firebase: un cambio aquí o en la app móvil se refleja al instante en todas las instalaciones.</div>
-      <div class="productos-toolbar" style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0 0 1rem;">
-        <div class="search-field" style="flex: 1 1 280px; max-width: 420px;">
+    const filtrosEl = filtros ?? panel;
+    filtrosEl.innerHTML = `
+      <div class="productos-filtros__group">
+        <div class="search-field" style="flex: 1 1 260px; max-width: 360px;">
           <span class="search-field__icon" aria-hidden="true">${renderIcon("search", { size: 17 })}</span>
           <input
             id="productos-search"
             class="search-input"
             type="search"
-            placeholder="Buscar por nombre, catálogo o categoría…"
+            placeholder="Buscar producto, catálogo o categoría…"
             value="${escapeHtml(searchQuery)}"
             aria-label="Buscar productos"
           />
@@ -930,20 +1458,89 @@ async function drawProductos(productos: ProductoCatalogo[]): Promise<void> {
             ${renderIcon("close", { size: 14 })}
           </button>
         </div>
-        <select
-          id="productos-categoria"
-          class="productos-select"
-          aria-label="Filtrar por categoría"
-        >
-          <option value="">Todas las categorías</option>
-          ${categoriaOptions
-            .map(
-              (option) =>
-                `<option value="${escapeHtml(option.id)}"${option.id === categoriaFiltro ? " selected" : ""}>${escapeHtml(option.label)}</option>`,
-            )
-            .join("")}
-        </select>
-      </div>
+      </div>`;
+
+    if (filtrosEl === panel) {
+      panel.insertAdjacentHTML(
+        "afterbegin",
+        `<div class="conn-updated">Los precios se sincronizan en tiempo real con Firebase: un cambio aquí o en la app móvil se refleja al instante en todas las instalaciones.</div>`,
+      );
+    }
+
+    const group = filtrosEl.querySelector<HTMLElement>(
+      ".productos-filtros__group",
+    );
+
+    const categoriaOptionsFor = (): SelectFieldOption[] => {
+      const opciones = catalogoFiltro
+        ? categoriaOptions.filter((c) => c.catalogId === catalogoFiltro)
+        : categoriaOptions;
+      return [
+        { value: "", label: "Todas las categorías" },
+        ...opciones.map((c) => ({ value: c.id, label: c.label })),
+      ];
+    };
+
+    const catalogoField = createSelectField({
+      options: [
+        { value: "", label: "Todos los catálogos" },
+        ...catalogoOptions.map((c) => ({
+          value: c.id,
+          label: c.label,
+        })),
+      ],
+      value: catalogoFiltro,
+      ariaLabel: "Filtrar por catálogo",
+      placeholder: "Todos los catálogos",
+      onChange: (value) => {
+        catalogoFiltro = value;
+
+        if (catalogoFiltro) {
+          const valida = categoriaOptions.some(
+            (c) => c.id === categoriaFiltro && c.catalogId === catalogoFiltro,
+          );
+          if (categoriaFiltro && !valida) {
+            categoriaFiltro = "";
+          }
+        }
+
+        categoriaField.setOptions(categoriaOptionsFor());
+        categoriaField.setValue(categoriaFiltro, true);
+        updateRows(panel, getCatalogo());
+      },
+    });
+
+    const categoriaField: SelectField = createSelectField({
+      options: categoriaOptionsFor(),
+      value: categoriaFiltro,
+      ariaLabel: "Filtrar por categoría",
+      placeholder: "Todas las categorías",
+      onChange: (value) => {
+        categoriaFiltro = value;
+        updateRows(panel, getCatalogo());
+      },
+    });
+
+    group?.append(catalogoField.root, categoriaField.root);
+
+    const input = document.getElementById("productos-search") as HTMLInputElement;
+    input.addEventListener("input", () => {
+      searchQuery = input.value;
+      updateRows(panel, getCatalogo());
+      actualizarClear(input);
+    });
+
+    const clearBtn = document.querySelector<HTMLButtonElement>('[data-clear="productos-search"]');
+    clearBtn?.addEventListener("click", () => {
+      input.value = "";
+      searchQuery = "";
+      updateRows(panel, getCatalogo());
+      actualizarClear(input);
+      input.focus();
+    });
+    actualizarClear(input);
+
+    panel.innerHTML = `
       <div class="data-table-wrap">
         <table class="data-table">
           <thead><tr>
@@ -955,29 +1552,6 @@ async function drawProductos(productos: ProductoCatalogo[]): Promise<void> {
           <tbody></tbody>
         </table>
       </div>`;
-
-    const input = panel.querySelector<HTMLInputElement>("#productos-search")!;
-    input.addEventListener("input", () => {
-      searchQuery = input.value;
-      updateRows(panel, getCatalogo());
-      actualizarClear(input);
-    });
-
-    const clearBtn = panel.querySelector<HTMLButtonElement>('[data-clear="productos-search"]');
-    clearBtn?.addEventListener("click", () => {
-      input.value = "";
-      searchQuery = "";
-      updateRows(panel, getCatalogo());
-      actualizarClear(input);
-      input.focus();
-    });
-    actualizarClear(input);
-
-    const categoriaSelect = panel.querySelector<HTMLSelectElement>("#productos-categoria");
-    categoriaSelect?.addEventListener("change", () => {
-      categoriaFiltro = categoriaSelect.value;
-      updateRows(panel, getCatalogo());
-    });
 
     panel.querySelectorAll<HTMLButtonElement>("[data-sort]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1076,4 +1650,12 @@ export function initProductosView(): void {
   document
     .querySelector<HTMLButtonElement>('[data-action="sync-precios"]')
     ?.addEventListener("click", () => void subirPrecios());
+
+  document
+    .querySelector<HTMLButtonElement>('[data-action="nuevo-producto"]')
+    ?.addEventListener("click", () => void nuevoProducto());
+
+  document
+    .querySelector<HTMLButtonElement>('[data-action="importar-json"]')
+    ?.addEventListener("click", () => importarJson());
 }

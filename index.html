@@ -5,21 +5,7 @@
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Fica Tostadores</title>
-    <script>
-      // Evita flash de tema incorrecto al cargar
-      (function () {
-        try {
-          var stored = localStorage.getItem("fica-theme");
-          var theme =
-            stored === "light" || stored === "dark"
-              ? stored
-              : window.matchMedia("(prefers-color-scheme: light)").matches
-                ? "light"
-                : "dark";
-          document.documentElement.setAttribute("data-theme", theme);
-        } catch (_) {}
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
@@ -32,7 +18,7 @@
         <div class="mobile-header__brand">
           <img src="/assets/logo.webp" alt="Fica Tostadores" class="mobile-header__logo" />
           <span class="mobile-header__title">Fica Tostadores</span>
-          <span class="app-version-badge">v0.1.0</span>
+          <span class="app-version-badge">v0.2.0</span>
         </div>
       </header>
       <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -43,7 +29,6 @@
           <div class="sidebar__brand">
             <div class="sidebar__title-row">
               <span class="sidebar__title">Fica Tostadores</span>
-              <span class="app-version-badge">v0.1.0</span>
             </div>
             <span class="sidebar__subtitle">Panel de administración</span>
           </div>
@@ -115,6 +100,7 @@
               <span class="theme-toggle__icon theme-toggle__icon--moon" data-icon="moon" data-size="18"></span>
             </button>
           </div>
+          <div class="sidebar__version" id="sidebar-version">v0.2.0</div>
         </div>
       </aside>
 
@@ -126,6 +112,8 @@
               <h1 class="view__title">Cotizaciones</h1>
               <p class="view__subtitle">Solicitudes pendientes en tiempo real</p>
             </div>
+          </div>
+          <div class="view__toolbar">
             <div class="view__actions">
               <button class="btn btn--primary" type="button" data-action="nueva-cotizacion">
                 <span data-icon="add" data-size="16"></span>
@@ -156,6 +144,8 @@
               <h1 class="view__title">Historial</h1>
               <p class="view__subtitle">Cotizaciones y OT cerradas</p>
             </div>
+          </div>
+          <div class="view__toolbar">
             <div class="view__actions">
               <div class="search-field">
                 <span data-icon="search" data-size="16" class="search-field__icon"></span>
@@ -176,6 +166,8 @@
               <h1 class="view__title">Clientes</h1>
               <p class="view__subtitle">Historial y reincidencia por cliente</p>
             </div>
+          </div>
+          <div class="view__toolbar">
             <div class="view__actions">
               <div class="search-field">
                 <span data-icon="search" data-size="16" class="search-field__icon"></span>
@@ -196,16 +188,23 @@
               <h1 class="view__title">Productos</h1>
               <p class="view__subtitle">Catálogo de tostadoras y accesorios</p>
             </div>
+          </div>
+          <div class="view__toolbar view__toolbar--productos">
             <div class="view__actions">
               <button class="btn btn--secondary" type="button" data-action="sync-precios">
                 <span data-icon="refresh" data-size="16"></span>
                 Sincronizar precios
               </button>
-              <button class="btn btn--primary" type="button" disabled>
+              <button class="btn btn--secondary" type="button" data-action="importar-json">
+                <span data-icon="box" data-size="16"></span>
+                Importar JSON
+              </button>
+              <button class="btn btn--primary" type="button" data-action="nuevo-producto">
                 <span data-icon="add" data-size="16"></span>
                 Nuevo producto
               </button>
             </div>
+            <div class="productos-filtros" id="productos-filtros"></div>
           </div>
           <div class="panel panel--plain" id="productos-root"></div>
         </section>
@@ -229,6 +228,8 @@
               <h1 class="view__title">Conexiones</h1>
               <p class="view__subtitle">Estado del enlace app ↔ web y base de datos</p>
             </div>
+          </div>
+          <div class="view__toolbar">
             <div class="view__actions">
               <button class="btn btn--secondary" type="button" data-action="recheck">
                 <span data-icon="refresh" data-size="16"></span>

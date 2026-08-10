@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 
 export interface FirebaseClientConfig {
   apiKey: string;
@@ -61,6 +61,17 @@ export function getConfigIssues(config: AppConfig = getConfig()): string[] {
 }
 
 let cachedInstanceId: string | null = null;
+
+/** Hidrata la caché con el ID de instancia de Rust (SQLite) al arrancar. */
+export function hydrateInstanceId(id: string): void {
+  if (!id) return;
+  cachedInstanceId = id;
+  try {
+    localStorage.setItem("fica-instance-id", id);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
 
 /** ID estable de esta instalación (se envía en el heartbeat). */
 export function getInstanceId(): string {

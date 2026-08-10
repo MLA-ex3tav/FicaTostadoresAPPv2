@@ -1,4 +1,5 @@
 import { getConfig } from "./config";
+import { getEffectiveSecret } from "./secret";
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -25,7 +26,7 @@ function errorMessage(error: unknown): string {
 }
 
 function authHeaders(): HeadersInit {
-  const { appSecret } = getConfig();
+  const appSecret = getEffectiveSecret();
   return appSecret ? { Authorization: `Bearer ${appSecret}` } : {};
 }
 
@@ -35,6 +36,47 @@ async function readApiError(res: Response): Promise<string | null> {
     return typeof body.error === "string" ? body.error : null;
   } catch {
     return null;
+  }
+}
+
+/** Sube una imagen de producto a la web (Vercel Blob). variant: "product" | "carousel". */
+export async function subirImagenProducto(
+  blob: Blob,
+  variant: "product" | "carousel" = "product",
+): Promise<ApiResult<{ ok: boolean; url: string }>> {
+  const { webUrl } = getConfig();
+
+  if (!webUrl) {
+    return fail(null, 0, "VITE_WEB_API_URL no definida en .env");
+  }
+
+  const started = performance.now();
+
+  try {
+    const formData = new FormData();
+    formData.append("file", blob, "image.webp");
+    formData.append("variant", variant);
+
+    const res = await fetch(`${webUrl}/api/electron/upload`, {
+      method: "POST",
+      headers: { ...authHeaders() },
+      body: formData,
+    });
+    const latencyMs = Math.round(performance.now() - started);
+
+    if (res.ok) {
+      const data = (await res.json()) as { ok: boolean; url: string };
+      return ok(res.status, latencyMs, data);
+    }
+
+    const apiError = await readApiError(res);
+    return fail(res.status, latencyMs, apiError ?? `HTTP ${res.status}`);
+  } catch (error) {
+    return fail(
+      null,
+      Math.round(performance.now() - started),
+      `Sin respuesta (${errorMessage(error)})`,
+    );
   }
 }
 
@@ -319,6 +361,7 @@ export interface ProductoUpdate {
   longDescription?: string;
   specs?: string[];
   features?: string[];
+  technicalDetails?: { label: string; value: string }[];
   disabledColors?: string[];
   isOutOfStock?: boolean;
   disableColors?: boolean;
@@ -326,6 +369,49 @@ export interface ProductoUpdate {
   promoTag?: string;
   promoDescription?: string;
   isFeatured?: boolean;
+  listPrice?: number;
+  price?: number;
+  precio?: number;
+  images?: {
+    carousel: { src: string; focus?: { x: number; y: number } };
+    product: { src: string; focus?: { x: number; y: number } };
+  }[];
+}
+
+/** Crea un producto nuevo en Firestore (POST en /api/electron/productos). */
+export async function crearProducto(
+  campos: ProductoUpdate & { id?: string },
+): Promise<ApiResult<{ ok: boolean; id: string }>> {
+  const { webUrl } = getConfig();
+
+  if (!webUrl) {
+    return fail(null, 0, "VITE_WEB_API_URL no definida en .env");
+  }
+
+  const started = performance.now();
+
+  try {
+    const res = await fetch(`${webUrl}/api/electron/productos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(campos),
+    });
+    const latencyMs = Math.round(performance.now() - started);
+
+    if (res.ok) {
+      const data = (await res.json()) as { ok: boolean; id: string };
+      return ok(res.status, latencyMs, data);
+    }
+
+    const apiError = await readApiError(res);
+    return fail(res.status, latencyMs, apiError ?? `HTTP ${res.status}`);
+  } catch (error) {
+    return fail(
+      null,
+      Math.round(performance.now() - started),
+      `Sin respuesta (${errorMessage(error)})`,
+    );
+  }
 }
 
 /** Actualiza campos editables de un producto (PATCH en /api/electron/productos/[id]). */

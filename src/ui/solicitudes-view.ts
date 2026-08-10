@@ -18,6 +18,7 @@ import { openContextMenu, type ContextMenuItem } from "./context-menu";
 import { openNuevaCotizacion } from "./nueva-cotizacion";
 import { showConfirmDialog } from "./confirm-dialog";
 import { compartirPdf } from "./pdf-share";
+import { conLoader } from "./loader";
 
 /* ── Utilidades ── */
 
@@ -87,7 +88,10 @@ async function confirmarYEliminar(id: string, descripcion: string): Promise<void
   });
   if (!confirmado) return;
 
-  const result = await eliminarSolicitudRemota(id);
+  const result = await conLoader(
+    eliminarSolicitudRemota(id),
+    "Eliminando…",
+  );
   if (result.ok) {
     showToast({
       title: "Solicitud eliminada",
