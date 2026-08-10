@@ -209,10 +209,6 @@ export function initConexionesView(): void {
   renderChecks(initialChecks());
 
   document
-    .querySelector('[data-action="recheck"]')
-    ?.addEventListener("click", () => void runConexiones());
-
-  document
     .querySelector('[data-action="check-updates"]')
     ?.addEventListener("click", () => void checkAppUpdates(true));
 

@@ -1,7 +1,7 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { showToast } from "../ui/toast";
 
-export const APP_VERSION = "0.2.2";
+export const APP_VERSION = "0.2.3";
 
 /**
  * Comprueba en GitHub Releases si hay una actualización disponible usando el
