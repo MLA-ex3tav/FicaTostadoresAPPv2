@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="es" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
@@ -12,13 +12,13 @@
   <body>
     <div class="app-shell">
       <header class="mobile-header">
-        <button class="mobile-header__menu-btn" id="mobile-menu-toggle" type="button" aria-label="Abrir menÃº">
+        <button class="mobile-header__menu-btn" id="mobile-menu-toggle" type="button" aria-label="Abrir menú">
           <span data-icon="clipboardList" data-size="22"></span>
         </button>
         <div class="mobile-header__brand">
           <img src="/assets/logo.webp" alt="Fica Tostadores" class="mobile-header__logo" />
           <span class="mobile-header__title">Fica Tostadores</span>
-          <span class="app-version-badge">v0.2.1</span>
+          <span class="app-version-badge">v0.2.2</span>
         </div>
       </header>
       <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -30,14 +30,14 @@
             <div class="sidebar__title-row">
               <span class="sidebar__title">Fica Tostadores</span>
             </div>
-            <span class="sidebar__subtitle">Panel de administraciÃ³n</span>
+            <span class="sidebar__subtitle">Panel de administración</span>
           </div>
           <button
             class="sidebar__collapse-btn"
             id="sidebar-collapse-toggle"
             type="button"
-            title="Colapsar menÃº"
-            aria-label="Colapsar o expandir menÃº lateral"
+            title="Colapsar menú"
+            aria-label="Colapsar o expandir menú lateral"
           >
             <span class="sidebar__collapse-icon sidebar__collapse-icon--collapse" data-icon="sidebarLeft" data-size="18"></span>
             <span class="sidebar__collapse-icon sidebar__collapse-icon--expand" data-icon="sidebarRight" data-size="18"></span>
@@ -45,22 +45,22 @@
         </header>
 
         <nav class="sidebar__nav" id="sidebar-nav" aria-label="Secciones">
-          <p class="sidebar__group-label">OperaciÃ³n</p>
+          <p class="sidebar__group-label">Operación</p>
           <button class="nav-item nav-item--active" data-view="cotizaciones" data-tooltip="Cotizaciones" type="button">
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="fileText" data-size="20"></span></span>
             <span class="nav-item__text">Cotizaciones</span>
             <span class="nav-item__count" id="nav-badge-cotizaciones" hidden>0</span>
           </button>
-          <button class="nav-item" data-view="ot" data-tooltip="Ã“rdenes de trabajo" type="button">
+          <button class="nav-item" data-view="ot" data-tooltip="Órdenes de trabajo" type="button">
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="clipboardList" data-size="20"></span></span>
-            <span class="nav-item__text">Ã“rdenes de trabajo</span>
+            <span class="nav-item__text">Órdenes de trabajo</span>
           </button>
           <button class="nav-item" data-view="historial" data-tooltip="Historial" type="button">
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="history" data-size="20"></span></span>
             <span class="nav-item__text">Historial</span>
           </button>
 
-          <p class="sidebar__group-label">AdministraciÃ³n</p>
+          <p class="sidebar__group-label">Administración</p>
           <button class="nav-item" data-view="clientes" data-tooltip="Clientes" type="button">
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="users" data-size="20"></span></span>
             <span class="nav-item__text">Clientes</span>
@@ -69,9 +69,9 @@
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="box" data-size="20"></span></span>
             <span class="nav-item__text">Productos</span>
           </button>
-          <button class="nav-item" data-view="soporte" data-tooltip="Soporte tÃ©cnico" type="button">
+          <button class="nav-item" data-view="soporte" data-tooltip="Soporte técnico" type="button">
             <span class="nav-item__icon" aria-hidden="true"><span data-icon="headphones" data-size="20"></span></span>
-            <span class="nav-item__text">Soporte tÃ©cnico</span>
+            <span class="nav-item__text">Soporte técnico</span>
             <span class="nav-item__count" id="nav-badge-soporte" hidden>0</span>
           </button>
 
@@ -87,7 +87,7 @@
             <div class="sidebar__user-avatar" id="user-avatar" aria-hidden="true">FT</div>
             <div class="sidebar__user-info">
               <span class="sidebar__user-name" id="user-name">Modo local</span>
-              <span class="sidebar__user-email" id="user-email">Sin sesiÃ³n (Tauri v2)</span>
+              <span class="sidebar__user-email" id="user-email">Sin sesión (Tauri v2)</span>
             </div>
             <button
               class="theme-toggle"
@@ -100,7 +100,7 @@
               <span class="theme-toggle__icon theme-toggle__icon--moon" data-icon="moon" data-size="18"></span>
             </button>
           </div>
-          <div class="sidebar__version" id="sidebar-version">v0.2.1</div>
+          <div class="sidebar__version" id="sidebar-version">v0.2.2</div>
         </div>
       </aside>
 
@@ -108,7 +108,7 @@
         <section class="view view--active" data-view="cotizaciones" id="view-cotizaciones">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">OperaciÃ³n</p>
+              <p class="view__eyebrow">Operación</p>
               <h1 class="view__title">Cotizaciones</h1>
               <p class="view__subtitle">Solicitudes pendientes en tiempo real</p>
             </div>
@@ -117,7 +117,7 @@
             <div class="view__actions">
               <button class="btn btn--primary" type="button" data-action="nueva-cotizacion">
                 <span data-icon="add" data-size="16"></span>
-                Nueva cotizaciÃ³n
+                Nueva cotización
               </button>
             </div>
           </div>
@@ -128,9 +128,9 @@
         <section class="view" data-view="ot" id="view-ot">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">OperaciÃ³n</p>
-              <h1 class="view__title">Ã“rdenes de Trabajo</h1>
-              <p class="view__subtitle">ProducciÃ³n y seguimiento de fabricaciÃ³n</p>
+              <p class="view__eyebrow">Operación</p>
+              <h1 class="view__title">Órdenes de Trabajo</h1>
+              <p class="view__subtitle">Producción y seguimiento de fabricación</p>
             </div>
           </div>
           <div class="stats-grid" id="ot-stats"></div>
@@ -140,7 +140,7 @@
         <section class="view" data-view="historial" id="view-historial">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">OperaciÃ³n</p>
+              <p class="view__eyebrow">Operación</p>
               <h1 class="view__title">Historial</h1>
               <p class="view__subtitle">Cotizaciones y OT cerradas</p>
             </div>
@@ -149,8 +149,8 @@
             <div class="view__actions">
               <div class="search-field">
                 <span data-icon="search" data-size="16" class="search-field__icon"></span>
-                <input class="search-input" type="search" id="historial-search" placeholder="Buscar por cliente o NÂ°â€¦" disabled />
-                <button type="button" class="search-field__clear" data-clear="historial-search" aria-label="Limpiar bÃºsqueda" title="Limpiar">
+                <input class="search-input" type="search" id="historial-search" placeholder="Buscar por cliente o N°…" disabled />
+                <button type="button" class="search-field__clear" data-clear="historial-search" aria-label="Limpiar búsqueda" title="Limpiar">
                   <span data-icon="close" data-size="14"></span>
                 </button>
               </div>
@@ -162,7 +162,7 @@
         <section class="view" data-view="clientes" id="view-clientes">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">AdministraciÃ³n</p>
+              <p class="view__eyebrow">Administración</p>
               <h1 class="view__title">Clientes</h1>
               <p class="view__subtitle">Historial y reincidencia por cliente</p>
             </div>
@@ -171,8 +171,8 @@
             <div class="view__actions">
               <div class="search-field">
                 <span data-icon="search" data-size="16" class="search-field__icon"></span>
-                <input class="search-input" type="search" id="clientes-search" placeholder="Buscar clienteâ€¦" disabled />
-                <button type="button" class="search-field__clear" data-clear="clientes-search" aria-label="Limpiar bÃºsqueda" title="Limpiar">
+                <input class="search-input" type="search" id="clientes-search" placeholder="Buscar cliente…" disabled />
+                <button type="button" class="search-field__clear" data-clear="clientes-search" aria-label="Limpiar búsqueda" title="Limpiar">
                   <span data-icon="close" data-size="14"></span>
                 </button>
               </div>
@@ -184,9 +184,9 @@
         <section class="view" data-view="productos" id="view-productos">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">AdministraciÃ³n</p>
+              <p class="view__eyebrow">Administración</p>
               <h1 class="view__title">Productos</h1>
-              <p class="view__subtitle">CatÃ¡logo de tostadoras y accesorios</p>
+              <p class="view__subtitle">Catálogo de tostadoras y accesorios</p>
             </div>
           </div>
           <div class="view__toolbar view__toolbar--productos">
@@ -212,8 +212,8 @@
         <section class="view" data-view="soporte" id="view-soporte">
           <div class="view__header">
             <div>
-              <p class="view__eyebrow">AdministraciÃ³n</p>
-              <h1 class="view__title">Soporte tÃ©cnico</h1>
+              <p class="view__eyebrow">Administración</p>
+              <h1 class="view__title">Soporte técnico</h1>
               <p class="view__subtitle">Solicitudes de servicio desde la web</p>
             </div>
           </div>
@@ -226,7 +226,7 @@
             <div>
               <p class="view__eyebrow">Sistema</p>
               <h1 class="view__title">Conexiones</h1>
-              <p class="view__subtitle">Estado del enlace app â†” web y base de datos</p>
+              <p class="view__subtitle">Estado del enlace app ↔ web y base de datos</p>
             </div>
           </div>
           <div class="view__toolbar">
@@ -253,7 +253,7 @@
         </section>
       </main>
 
-      <nav class="bottom-nav" id="bottom-nav" aria-label="NavegaciÃ³n inferior">
+      <nav class="bottom-nav" id="bottom-nav" aria-label="Navegación inferior">
         <button class="bottom-nav__item nav-item nav-item--active" data-view="cotizaciones" type="button">
           <span class="bottom-nav__icon" aria-hidden="true"><span data-icon="fileText" data-size="20"></span></span>
           <span class="bottom-nav__label">Cotizaciones</span>
@@ -266,9 +266,9 @@
           <span class="bottom-nav__icon" aria-hidden="true"><span data-icon="history" data-size="20"></span></span>
           <span class="bottom-nav__label">Historial</span>
         </button>
-        <button class="bottom-nav__item" id="bottom-nav-more-btn" type="button" aria-label="Ver mÃ¡s opciones">
+        <button class="bottom-nav__item" id="bottom-nav-more-btn" type="button" aria-label="Ver más opciones">
           <span class="bottom-nav__icon" aria-hidden="true"><span data-icon="menu" data-size="20"></span></span>
-          <span class="bottom-nav__label">MÃ¡s</span>
+          <span class="bottom-nav__label">Más</span>
         </button>
       </nav>
     </div>

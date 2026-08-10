@@ -1,4 +1,4 @@
-﻿import { getConfig } from "./config";
+import { getConfig } from "./config";
 import { getEffectiveSecret } from "./secret";
 
 export interface ApiResult<T> {
@@ -27,7 +27,7 @@ function errorMessage(error: unknown): string {
 
 const FETCH_TIMEOUT_MS = 12_000;
 
-/** fetch con timeout: evita que las comprobaciones de conexiÃ³n se cuelguen. */
+/** fetch con timeout: evita que las comprobaciones de conexión se cuelguen. */
 function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
   const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   const signal = init?.signal
@@ -281,7 +281,7 @@ export interface RegistroOrdenTrabajoResponse {
 }
 
 /**
- * Elimina una solicitud (cotizaciÃ³n / OT / soporte) por su id, vÃ­a la API
+ * Elimina una solicitud (cotización / OT / soporte) por su id, vía la API
  * protegida de la web (DELETE /api/electron/solicitudes/[id]).
  */
 export async function eliminarSolicitud(
@@ -321,7 +321,7 @@ export async function eliminarSolicitud(
   }
 }
 
-/** Elimina un producto del catÃ¡logo (DELETE en /api/electron/productos/[id]). */
+/** Elimina un producto del catálogo (DELETE en /api/electron/productos/[id]). */
 export async function eliminarProducto(
   id: string,
 ): Promise<ApiResult<{ ok: boolean }>> {
@@ -466,7 +466,7 @@ export async function actualizarProducto(
 }
 
 /**
- * Edita una cotizaciÃ³n EXISTENTE en el mismo documento (PATCH en
+ * Edita una cotización EXISTENTE en el mismo documento (PATCH en
  * /api/electron/solicitudes/[id]) para no crear una copia duplicada.
  */
 export async function actualizarCotizacionSolicitud(
@@ -528,27 +528,27 @@ export interface CatalogConfigData {
 
 export const defaultCatalogConfig: CatalogConfigData = {
   catalogs: [
-    { id: "cafe", label: "Tostadores de cafÃ©" },
+    { id: "cafe", label: "Tostadores de café" },
     { id: "frutos", label: "Frutos secos y trigo" },
   ],
   categories: [
     {
       id: "cafe",
       catalogId: "cafe",
-      label: "LÃ­nea TLC",
-      description: "Tostadores de cafÃ© de especialidad y producciÃ³n artesanal.",
+      label: "Línea TLC",
+      description: "Tostadores de café de especialidad y producción artesanal.",
     },
     {
       id: "comercial",
       catalogId: "frutos",
       label: "Tostadores comerciales",
-      description: "ManÃ­, avellanas, trigo, almendras, semillas y mÃ¡s. Gas o leÃ±a.",
+      description: "Maní, avellanas, trigo, almendras, semillas y más. Gas o leña.",
     },
     {
       id: "industrial",
       catalogId: "frutos",
       label: "Tostadores industriales",
-      description: "Alta capacidad para plantas de producciÃ³n continua.",
+      description: "Alta capacidad para plantas de producción continua.",
     },
     {
       id: "procesamiento",
@@ -559,7 +559,7 @@ export const defaultCatalogConfig: CatalogConfigData = {
   ],
 };
 
-/** Trae la configuraciÃ³n de catÃ¡logos y categorÃ­as desde FicaTostadoresWEB. */
+/** Trae la configuración de catálogos y categorías desde FicaTostadoresWEB. */
 export async function fetchCatalogConfig(): Promise<ApiResult<CatalogConfigData>> {
   const { webUrl } = getConfig();
 
@@ -593,7 +593,7 @@ export async function fetchCatalogConfig(): Promise<ApiResult<CatalogConfigData>
 }
 
 /**
- * Registra una cotizaciÃ³n como orden de trabajo (OT) en Firestore, vÃ­a la API
+ * Registra una cotización como orden de trabajo (OT) en Firestore, vía la API
  * protegida de la web. La OT queda con estado "aprobada_ot" y enOT: true.
  */
 export async function registrarOrdenTrabajo(
