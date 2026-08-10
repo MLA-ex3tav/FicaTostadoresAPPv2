@@ -9,6 +9,17 @@ jobs:
   publish-tauri:
     permissions:
       contents: write
+    env:
+      # Config de la app (sin estos, el build de CI queda sin conexiones).
+      # Valores: variables del repo (públicas) + secreto de la app.
+      VITE_WEB_API_URL: ${{ vars.VITE_WEB_API_URL }}
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_COTIZACIONES_APP_SECRET: ${{ secrets.VITE_COTIZACIONES_APP_SECRET }}
     strategy:
       fail-fast: false
       matrix:

@@ -9,7 +9,7 @@ import {
 } from "../lib/connections";
 import { getNetworkState, onNetworkChange } from "../lib/network";
 import { invoke } from "../lib/runtime";
-import { renderIcon, mountIcons } from "./icons";
+import { renderIcon } from "./icons";
 import { checkAppUpdates } from "../services/updater";
 import { syncNow } from "../services/queue-executors";
 import { showToast } from "./toast";
@@ -216,28 +216,14 @@ export function initConexionesView(): void {
     .querySelector('[data-action="check-updates"]')
     ?.addEventListener("click", () => void checkAppUpdates(true));
 
-  // Acciones del sistema de seguridad (inyectadas en el toolbar de Conexiones)
-  const toolbar = document.querySelector<HTMLElement>("#view-conexiones .view__actions");
-  if (toolbar && !toolbar.querySelector('[data-action="sync-now"]')) {
-    const syncBtn = document.createElement("button");
-    syncBtn.type = "button";
-    syncBtn.className = "btn btn--secondary";
-    syncBtn.dataset.action = "sync-now";
-    syncBtn.innerHTML = `${renderIcon("refresh", { size: 16 })} Sincronizar ahora`;
-    toolbar.appendChild(syncBtn);
+  // Acciones del sistema de seguridad (botones declarados en index.html).
+  document
+    .querySelector('[data-action="sync-now"]')
+    ?.addEventListener("click", syncNowAction);
 
-    const autoBtn = document.createElement("button");
-    autoBtn.type = "button";
-    autoBtn.className = "btn btn--secondary";
-    autoBtn.dataset.action = "toggle-autostart";
-    autoBtn.innerHTML = `${renderIcon("play", { size: 16 })} Iniciar con Windows`;
-    toolbar.appendChild(autoBtn);
-
-    mountIcons(toolbar);
-
-    syncBtn.addEventListener("click", syncNowAction);
-    autoBtn.addEventListener("click", () => void toggleAutostart());
-  }
+  document
+    .querySelector('[data-action="toggle-autostart"]')
+    ?.addEventListener("click", () => void toggleAutostart());
 
   onNetworkChange(() => applyRedStatus());
 }

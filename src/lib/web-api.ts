@@ -1,4 +1,4 @@
-import { getConfig } from "./config";
+﻿import { getConfig } from "./config";
 import { getEffectiveSecret } from "./secret";
 
 export interface ApiResult<T> {
@@ -23,6 +23,17 @@ function fail<T>(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const FETCH_TIMEOUT_MS = 12_000;
+
+/** fetch con timeout: evita que las comprobaciones de conexiÃ³n se cuelguen. */
+function fetchWithTimeout(input: string, init?: RequestInit): Promise<Response> {
+  const timeout = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  const signal = init?.signal
+    ? AbortSignal.any([init.signal, timeout])
+    : timeout;
+  return fetch(input, { ...init, signal });
 }
 
 function authHeaders(): HeadersInit {
@@ -57,7 +68,7 @@ export async function subirImagenProducto(
     formData.append("file", blob, "image.webp");
     formData.append("variant", variant);
 
-    const res = await fetch(`${webUrl}/api/electron/upload`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/upload`, {
       method: "POST",
       headers: { ...authHeaders() },
       body: formData,
@@ -91,7 +102,7 @@ export async function pingWeb(): Promise<ApiResult<null>> {
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/solicitudes?tipo=cotizaciones`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/solicitudes?tipo=cotizaciones`, {
       headers: { ...authHeaders() },
       cache: "no-store",
     });
@@ -134,7 +145,7 @@ export async function sendHeartbeat(
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/heartbeat`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/heartbeat`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(payload),
@@ -187,7 +198,7 @@ export async function actualizarEstadoSolicitud(
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/solicitudes/${id}/estado`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/solicitudes/${id}/estado`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify({ estado } satisfies ActualizarEstadoPayload),
@@ -222,7 +233,7 @@ export async function fetchSolicitudes(
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/solicitudes?tipo=${tipo}`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/solicitudes?tipo=${tipo}`, {
       headers: { ...authHeaders() },
       cache: "no-store",
     });
@@ -270,7 +281,7 @@ export interface RegistroOrdenTrabajoResponse {
 }
 
 /**
- * Elimina una solicitud (cotización / OT / soporte) por su id, vía la API
+ * Elimina una solicitud (cotizaciÃ³n / OT / soporte) por su id, vÃ­a la API
  * protegida de la web (DELETE /api/electron/solicitudes/[id]).
  */
 export async function eliminarSolicitud(
@@ -285,7 +296,7 @@ export async function eliminarSolicitud(
   const started = performance.now();
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${webUrl}/api/electron/solicitudes/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
@@ -310,7 +321,7 @@ export async function eliminarSolicitud(
   }
 }
 
-/** Elimina un producto del catálogo (DELETE en /api/electron/productos/[id]). */
+/** Elimina un producto del catÃ¡logo (DELETE en /api/electron/productos/[id]). */
 export async function eliminarProducto(
   id: string,
 ): Promise<ApiResult<{ ok: boolean }>> {
@@ -323,7 +334,7 @@ export async function eliminarProducto(
   const started = performance.now();
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${webUrl}/api/electron/productos/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
@@ -391,7 +402,7 @@ export async function crearProducto(
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/productos`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/productos`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(campos),
@@ -428,7 +439,7 @@ export async function actualizarProducto(
   const started = performance.now();
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${webUrl}/api/electron/productos/${encodeURIComponent(id)}`,
       {
         method: "PATCH",
@@ -455,7 +466,7 @@ export async function actualizarProducto(
 }
 
 /**
- * Edita una cotización EXISTENTE en el mismo documento (PATCH en
+ * Edita una cotizaciÃ³n EXISTENTE en el mismo documento (PATCH en
  * /api/electron/solicitudes/[id]) para no crear una copia duplicada.
  */
 export async function actualizarCotizacionSolicitud(
@@ -472,7 +483,7 @@ export async function actualizarCotizacionSolicitud(
   const started = performance.now();
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${webUrl}/api/electron/solicitudes/${encodeURIComponent(id)}`,
       {
         method: "PATCH",
@@ -517,27 +528,27 @@ export interface CatalogConfigData {
 
 export const defaultCatalogConfig: CatalogConfigData = {
   catalogs: [
-    { id: "cafe", label: "Tostadores de café" },
+    { id: "cafe", label: "Tostadores de cafÃ©" },
     { id: "frutos", label: "Frutos secos y trigo" },
   ],
   categories: [
     {
       id: "cafe",
       catalogId: "cafe",
-      label: "Línea TLC",
-      description: "Tostadores de café de especialidad y producción artesanal.",
+      label: "LÃ­nea TLC",
+      description: "Tostadores de cafÃ© de especialidad y producciÃ³n artesanal.",
     },
     {
       id: "comercial",
       catalogId: "frutos",
       label: "Tostadores comerciales",
-      description: "Maní, avellanas, trigo, almendras, semillas y más. Gas o leña.",
+      description: "ManÃ­, avellanas, trigo, almendras, semillas y mÃ¡s. Gas o leÃ±a.",
     },
     {
       id: "industrial",
       catalogId: "frutos",
       label: "Tostadores industriales",
-      description: "Alta capacidad para plantas de producción continua.",
+      description: "Alta capacidad para plantas de producciÃ³n continua.",
     },
     {
       id: "procesamiento",
@@ -548,7 +559,7 @@ export const defaultCatalogConfig: CatalogConfigData = {
   ],
 };
 
-/** Trae la configuración de catálogos y categorías desde FicaTostadoresWEB. */
+/** Trae la configuraciÃ³n de catÃ¡logos y categorÃ­as desde FicaTostadoresWEB. */
 export async function fetchCatalogConfig(): Promise<ApiResult<CatalogConfigData>> {
   const { webUrl } = getConfig();
 
@@ -559,7 +570,7 @@ export async function fetchCatalogConfig(): Promise<ApiResult<CatalogConfigData>
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/catalog-config`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/catalog-config`, {
       headers: { ...authHeaders() },
       cache: "no-store",
     });
@@ -582,7 +593,7 @@ export async function fetchCatalogConfig(): Promise<ApiResult<CatalogConfigData>
 }
 
 /**
- * Registra una cotización como orden de trabajo (OT) en Firestore, vía la API
+ * Registra una cotizaciÃ³n como orden de trabajo (OT) en Firestore, vÃ­a la API
  * protegida de la web. La OT queda con estado "aprobada_ot" y enOT: true.
  */
 export async function registrarOrdenTrabajo(
@@ -597,7 +608,7 @@ export async function registrarOrdenTrabajo(
   const started = performance.now();
 
   try {
-    const res = await fetch(`${webUrl}/api/electron/solicitudes`, {
+    const res = await fetchWithTimeout(`${webUrl}/api/electron/solicitudes`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(payload),

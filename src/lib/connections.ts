@@ -99,9 +99,15 @@ export async function runConnectionChecks(
   const firestoreStarted = performance.now();
 
   try {
-    const snapshot = await getDocs(
-      query(collection(getDb(), "productos"), limit(5)),
-    );
+    const snapshot = await Promise.race([
+      getDocs(query(collection(getDb(), "productos"), limit(5))),
+      new Promise<never>((_, reject) =>
+        window.setTimeout(
+          () => reject(new Error("Tiempo de espera agotado (12 s)")),
+          12_000,
+        ),
+      ),
+    ]);
 
     update("firestore", {
       status: "ok",
